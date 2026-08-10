@@ -82,7 +82,7 @@ Wrapper flags:
    --tmux              Wrap opencode in plain tmux (works in any terminal).
                        Equivalent to OPENCODE_DOCKER_TMUX=1.
    --opencode-dir=PATH   Use PATH as the host OpenCode config dir instead of
-                       ~/.config/opencode. Affects agents, commands, skills, AGENTS.md,
+                       ~/.config/opencode. Affects agents, commands, skills, prompts, AGENTS.md,
                        and statusline. Env: OPENCODE_DOCKER_CONFIG_DIR.
 
 Separator:
@@ -717,7 +717,7 @@ if [ "$WITH_GH" = "1" ] && [ -n "$GH_HOST_TOKEN" ]; then
    echo "opencode-docker: gh-auth-proxy sidecar '$GH_PROXY_SIDECAR' is active — view the audit log with: $RUNTIME logs $GH_PROXY_SIDECAR" >&2
 fi
 
-for item in agents commands skills; do
+for item in agents commands skills prompts; do
   src="$OPENCODE_CONFIG_DIR/$item"
   # Resolve top-level symlink so cp -RL gets a real directory path, not a link.
   # Hop counter guards against pathological symlink cycles (a -> b -> a).

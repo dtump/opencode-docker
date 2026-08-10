@@ -110,6 +110,7 @@ On every run, these items are dereferenced (symlinks resolved) and bind-mounted 
 | `~/.config/opencode/agents/`      | custom agent definitions      |
 | `~/.config/opencode/skills/`      | custom skills                 |
 | `~/.config/opencode/commands/`    | slash commands                |
+| `~/.config/opencode/prompts/`     | custom prompts                |
 | `~/.config/opencode/AGENTS.md`    | global preferences (`gprefs`) |
 
 For OpenCode configuration, maintain a dedicated `~/.config/opencode/opencode.docker.json` (any valid OpenCode `opencode.json` schema). When present it is copied to `/root/.config/opencode/opencode.json` at container start, so the container can modify its own config without writing back to the host; the host seed is reapplied on the next run. Keeping it separate from your host `opencode.json` avoids dragging macOS-only keys or host-filesystem paths into the container. See [`examples/opencode.docker.json`](examples/opencode.docker.json) for a valid starting configuration.
@@ -123,7 +124,7 @@ opencode-docker --opencode-dir=~/.config/opencode-work ~/repo
 OPENCODE_DOCKER_CONFIG_DIR=~/.config/opencode-work opencode-docker ~/repo
 ```
 
-The chosen dir takes the place of `~/.config/opencode` for every item in the parity table above (agents, skills, commands, `AGENTS.md`, and `opencode.docker.json`).
+The chosen dir takes the place of `~/.config/opencode` for every item in the parity table above (agents, skills, commands, prompts, `AGENTS.md`, and `opencode.docker.json`).
 
 ### Git identity
 
