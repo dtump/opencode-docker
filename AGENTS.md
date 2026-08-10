@@ -25,6 +25,7 @@ Mounted items from host config:
 - `agents/` - Custom agent definitions
 - `skills/` - Custom skills
 - `commands/` - Slash commands
+- `prompts/` - Custom prompts
 - `AGENTS.md` - Global preferences
 - `opencode.docker.json` - Container-specific OpenCode config (copied to `opencode.json`)
 
