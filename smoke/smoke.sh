@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Schuberg Philis
 #
-# smoke.sh — parameterized smoke-test driver for the claude-docker entrypoint.
+# smoke.sh — parameterized smoke-test driver for the opencode-docker entrypoint.
 # Each invocation exercises one cell of the test matrix.
 #
 # Parameters (flags or env vars):
@@ -13,13 +13,13 @@
 #   --ro=0|1        1 = mount workspace :ro (robustness cell)
 #   --ephemeral=0|1 1 = skip named volumes (--ephemeral mode)
 #   --settings=0|1  1 = mount a settings.docker.json fixture at the seed path
-#                   (entrypoint copies it to /root/.claude/settings.json);
+#                   (entrypoint copies it to /root/.config/opencode/settings.json);
 #                   0 = no seed, asserts the entrypoint copes without one
 #                   (default: 1). With --volstate=warm, the warm pass reruns
 #                   against a rewritten fixture (V2 sentinel) to prove the
 #                   entrypoint re-seeds, then a final no-seed pass proves a
 #                   persisted settings.json is left as-is.
-#   --image=TAG     Docker image to run (default: claude-code:local)
+#   --image=TAG     Docker image to run (default: opencode:local)
 #   IMAGE=TAG       env var override for --image (checked if --image absent)
 #
 # Exit codes: 0 = cell passed, non-zero = cell failed.
@@ -34,7 +34,7 @@ VOLSTATE="cold"
 RO="0"
 EPHEMERAL="0"
 SETTINGS="1"
-IMAGE="${IMAGE:-claude-code:local}"
+IMAGE="${IMAGE:-opencode:local}"
 
 # ---------------------------------------------------------------------------
 # Argument parsing
@@ -71,7 +71,7 @@ die() { echo "[smoke] FAIL: $*" >&2; exit 1; }
 # sources there arrive as empty dirs in-container. macOS mktemp ignores even
 # an explicit TMPDIR override for no-template invocations, hence the explicit
 # template. Same rationale as run.sh's stage_root.
-smoke_stage_root="${HOME}/.cache/claude-docker"
+smoke_stage_root="${HOME}/.cache/opencode-docker"
 mkdir -p "${smoke_stage_root}"
 TMPROOT=$(mktemp -d "${smoke_stage_root}/smoke.XXXXXX")
 WORKSPACE_HOST="${TMPROOT}/workspace"
@@ -93,7 +93,7 @@ CONTAINER_STDERR="${TMPROOT}/container_stderr.txt"
 cleanup() {
   if [ -n "${VOL_NAME}" ]; then
     docker volume rm "${VOL_NAME}" >/dev/null 2>&1 || true
-    docker volume rm "${VOL_NAME}-claude" >/dev/null 2>&1 || true
+    docker volume rm "${VOL_NAME}-opencode" >/dev/null 2>&1 || true
   fi
   rm -rf "${TMPROOT}"
 }
@@ -150,22 +150,22 @@ MOUNT_ARGS=(
   "-v" "${WORKSPACE_HOST}:${CONTAINER_WORKSPACE}${WS_SUFFIX}"
 )
 
-# Settings fixture — mirrors run.sh's settings.docker.json forwarding: mounted
-# :ro at the seed path, entrypoint copies it to /root/.claude/settings.json.
+# Settings fixture — mirrors run.sh's opencode.docker.json forwarding: mounted
+# :ro at the seed path, entrypoint copies it to /root/.config/opencode/opencode.json.
 # The sentinel proves the seeded copy came from OUR fixture; the in-container
 # check also renames a tmp file over the copy — the regression that motivated
 # the seed-copy design (rename() over a single-file bind mount → EBUSY).
 # These three are mutable across warm-cell passes (see the warm branch below),
 # so the mount lives in its own array and run_container reads the current
 # values instead of baking them into ENV_ARGS.
-SETTINGS_FIXTURE="${TMPROOT}/settings.docker.json"
-SETTINGS_SENTINEL="SMOKE-SENTINEL-SETTINGS"
+SETTINGS_FIXTURE="${TMPROOT}/opencode.docker.json"
+SETTINGS_SENTINEL="SMOKE-SENTINEL-OPENCODE"
 EXPECT_SETTINGS_MODE="${SETTINGS}"
 SETTINGS_MOUNT_ARGS=()
 if [ "${SETTINGS}" = "1" ]; then
   printf '{"env":{"SMOKE_SENTINEL":"%s"}}\n' "${SETTINGS_SENTINEL}" > "${SETTINGS_FIXTURE}"
   SETTINGS_MOUNT_ARGS=(
-    "-v" "${SETTINGS_FIXTURE}:/run/claude-docker/settings.json:ro"
+    "-v" "${SETTINGS_FIXTURE}:/run/opencode-docker/opencode.json:ro"
   )
 fi
 
@@ -243,13 +243,13 @@ if [ "${EPHEMERAL}" = "0" ]; then
     VOL_NAME="smoke-test-root-$$"
     VOLUME_ARGS=(
       "-v" "${VOL_NAME}:/root"
-      "-v" "${VOL_NAME}-claude:/root/.claude"
+      "-v" "${VOL_NAME}-opencode:/root/.config/opencode"
     )
   else
     # cold: use anonymous volumes (Docker creates and discards them with --rm).
     VOLUME_ARGS=(
       "-v" "/root"
-      "-v" "/root/.claude"
+      "-v" "/root/.config/opencode"
     )
   fi
 
@@ -358,7 +358,7 @@ if [ "${RO}" = "0" ]; then
 fi
 
 # 3. Robustness: no spurious 'entrypoint: WARN' on stderr — asserted for EVERY
-#    cell, not just RO. The entrypoint only chowns /root + /root/.claude
+#    cell, not just RO. The entrypoint only chowns /root + /root/.config/opencode
 #    (entrypoint.sh:42), so the :ro *workspace* mount never trips the chown→EROFS
 #    filter; the mounts that DO sit under /root are the credential opt-in mounts
 #    (--aws/--glab/--tfe), so the opt-in cells are what actually pin the

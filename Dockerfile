@@ -41,13 +41,13 @@ RUN echo 'APT::Sandbox::User "root";' > /etc/apt/apt.conf.d/10no-sandbox \
 
 # Free UID/GID 1000. Ubuntu's base image ships a default `ubuntu` user at
 # 1000:1000 — i.e. exactly the typical host UID. The entrypoint creates a
-# fresh `claude` user mapped to HOST_UID; without this step its `useradd`
-# is skipped on collision and `runuser -u claude` then fails. Reusing the
+# fresh `opencode` user mapped to HOST_UID; without this step its `useradd`
+# is skipped on collision and `runuser -u opencode` then fails. Reusing the
 # baked-in `ubuntu` account would also silently inherit its supplementary
 # groups (sudo, adm, plugdev, …). Guarded so a future base image without
 # the default user doesn't break the build.
 RUN if getent passwd ubuntu >/dev/null; then userdel -r ubuntu; fi \
- && if getent group  ubuntu >/dev/null; then groupdel  ubuntu; fi
+    && if getent group ubuntu >/dev/null; then groupdel ubuntu; fi
 
 # NodeSource ships Node 24 LTS pinned to upstream releases — Ubuntu's archive
 # `nodejs` tracks an older minor and isn't LTS-pinned. `nodistro` is
@@ -141,24 +141,26 @@ RUN . /tmp/uv.env; set -e; ARCH=$(uname -m); \
 
 # npm-backed CLIs — pinned versions. Trust = npm's signed dist.integrity;
 # run `npm audit signatures <pkg>@<ver>` when bumping.
-# --ignore-scripts blocks lifecycle hooks for every package + transitive dep
-# (hard security boundary, kept on). claude-code 2.1.x ships its real binary
-# in a per-arch optional-dep package; the launcher's postinstall (install.cjs)
-# copies it over bin/claude.exe. Without it `claude` is a stub that errors at
-# exec. We invoke that one script ourselves — platform-detect + file copy,
-# no network/exec, audit-verified for 2.1.131; re-read on each bump.
+# opencode-ai ships its real binary in a per-arch optional-dep package; the
+# launcher's postinstall copies it over. Without it `opencode` is a stub that
+# errors at exec. We install with --ignore-scripts (blocks lifecycle hooks for
+# every package + transitive dep, hard security boundary) then explicitly invoke
+# the postinstall for opencode-ai only. It selects and copies the installed
+# platform binary, verifies it with `--version`, and only falls back to a
+# separate `npm install --ignore-scripts` when npm omitted the optional binary.
+# Re-review that script whenever the OpenCode pin changes.
 # `npm root -g` over a hardcoded path so we don't break on a different prefix.
 # npm tools carry version-only pins (no sha256): npm install verifies the
 # registry-advertised dist.integrity (registry-integrity, not provenance; CI
 # runs `npm audit signatures`). All three share this layer, so they share a COPY.
-COPY pins/claude-code.env pins/openspec.env pins/pnpm.env /tmp/
-RUN . /tmp/claude-code.env && . /tmp/openspec.env && . /tmp/pnpm.env \
- && npm install -g --ignore-scripts \
-      "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" \
-      "@fission-ai/openspec@${OPENSPEC_VERSION}" \
-      "pnpm@${PNPM_VERSION}" \
- && node "$(npm root -g)/@anthropic-ai/claude-code/install.cjs" \
- && rm /tmp/claude-code.env /tmp/openspec.env /tmp/pnpm.env
+COPY pins/opencode.env pins/openspec.env pins/pnpm.env /tmp/
+RUN . /tmp/opencode.env && . /tmp/openspec.env && . /tmp/pnpm.env \
+  && npm install -g --ignore-scripts \
+        "opencode-ai@${OPENCODE_VERSION}" \
+        "@fission-ai/openspec@${OPENSPEC_VERSION}" \
+        "pnpm@${PNPM_VERSION}" \
+   && node "$(npm root -g)/opencode-ai/postinstall.mjs" \
+   && rm /tmp/opencode.env /tmp/openspec.env /tmp/pnpm.env
 
 # tfenv — pure-bash terraform version manager. Arch-independent (just
 # bash scripts), so a single sha256 covers amd64 and arm64. We deliberately
@@ -166,10 +168,10 @@ RUN . /tmp/claude-code.env && . /tmp/openspec.env && . /tmp/pnpm.env \
 # interactive `tfenv install <v>`) fetches the right version from
 # releases.hashicorp.com at runtime, in the same runtime-fetch class as
 # `pnpm dlx`/`uvx`. Installed under /opt (not /root) so image-level
-# version bumps aren't shadowed by the claude-code-root named volume.
+# version bumps aren't shadowed by the opencode-root named volume.
 # Placed after the heavier npm install so a tfenv version bump doesn't
 # invalidate that layer's cache (tfenv pins move far less often than the
-# claude-code/openspec/pnpm pins above).
+# opencode-ai/openspec/pnpm pins above).
 COPY pins/tfenv.env /tmp/tfenv.env
 RUN . /tmp/tfenv.env \
  && curl -fsSL "$TFENV_URL" -o /tmp/tfenv.tar.gz \
@@ -180,11 +182,11 @@ RUN . /tmp/tfenv.env \
  && ln -s /opt/tfenv/bin/terraform /usr/local/bin/terraform \
  && rm /tmp/tfenv.tar.gz /tmp/tfenv.env
 
-# Plain `tmux` mode swallows Shift+Enter so Claude's prompt sees only Enter,
+# Plain `tmux` mode swallows Shift+Enter so OpenCode's prompt sees only Enter,
 # forcing users to type `\` for a literal newline. `always` is required
-# (not `on`) because Claude does not send the kitty activation request that
-# `on` waits for — see claude-code#26629. /etc/tmux.conf, not
-# /root/.tmux.conf, because /root is masked by the claude-code-root named
+# (not `on`) because OpenCode does not send the kitty activation request that
+# `on` waits for. /etc/tmux.conf, not
+# /root/.tmux.conf, because /root is masked by the opencode-root named
 # volume at runtime. Harmless under tmux -CC: iTerm2 control mode bypasses
 # tmux's input layer. Placed after npm install so edits don't invalidate
 # the heavy AWS CLI / uv / glab / npm download layers above.
@@ -193,17 +195,17 @@ set -s extended-keys always
 set -as terminal-features "*:extkeys"
 EOF
 
-# DISABLE_AUTOUPDATER=1 keeps the pinned CLAUDE_CODE_VERSION authoritative —
-# without it, claude auto-replaces itself at runtime, defeating the
+# OPENCODE_DISABLE_AUTOUPDATE=1 keeps the pinned OPENCODE_VERSION authoritative —
+# without it, opencode auto-replaces itself at runtime, defeating the
 # --ignore-scripts supply-chain pinning above. Bump the image to upgrade.
-ENV CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 \
-    DISABLE_AUTOUPDATER=1 \
+ENV OPENCODE_EXPERIMENTAL_AGENT_TEAMS=1 \
+    OPENCODE_DISABLE_AUTOUPDATE=1 \
     IS_SANDBOX=1 \
     LANG=C.UTF-8 \
     LC_ALL=C.UTF-8
 
 # Container starts as root so the entrypoint can chown /root to the host
-# UID, then drops privileges via runuser. Steady-state, claude runs as the
+# UID, then drops privileges via runuser. Steady-state, opencode runs as the
 # host user with no effective / permitted / ambient capabilities — the
 # kernel clears those on the UID→non-zero transition; the bounding set
 # retains the setup caps but is inert under `no-new-privileges`. Do not
@@ -216,4 +218,4 @@ WORKDIR /workspaces
 COPY --chmod=0755 entrypoint.sh /usr/local/bin/entrypoint.sh
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
-CMD ["claude"]
+CMD ["opencode"]

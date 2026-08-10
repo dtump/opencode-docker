@@ -50,7 +50,7 @@ from pathlib import Path
 REPO_DIR = Path(__file__).resolve().parent
 PINS_DIR = REPO_DIR / "pins"
 DOCKERFILE = REPO_DIR / "Dockerfile"
-USER_AGENT = "update_pins.py (claude-docker)"
+USER_AGENT = "update_pins.py (opencode-docker)"
 SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+$")
 # Default soak window in days — kept as a module constant so --audit and the
 # normal refresh flow share the same default; update_pins.py is the single
@@ -67,7 +67,7 @@ PIN_VERSION_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9.+_-]*")
 #   npm    -> npm package name        github -> owner/repo (releases)
 #   gitlab -> owner/repo (releases)   awscli -> special-cased (tag date + CDN)
 TOOLS = [
-    ("claude-code", "npm", "@anthropic-ai/claude-code"),
+    ("opencode", "npm", "opencode-ai"),
     ("openspec", "npm", "@fission-ai/openspec"),
     ("pnpm", "npm", "pnpm"),
     ("uv", "github", "astral-sh/uv"),
@@ -176,7 +176,7 @@ def is_major_bump(old: str, new: str) -> bool:
 
 def version_var(name: str) -> str:
     """Return the env-var name for a tool's version pin.
-    E.g. claude-code → CLAUDE_CODE_VERSION, pnpm → PNPM_VERSION."""
+    E.g. opencode → OPENCODE_VERSION, pnpm → PNPM_VERSION."""
     return name.upper().replace("-", "_") + "_VERSION"
 
 
@@ -398,8 +398,8 @@ def fragment_lines(name: str, v: str) -> list[str]:
     the registry-advertised dist.integrity; CI runs `npm audit signatures`).
     Binary tools emit the resolved download URL next to its sha256 so the build
     fetches and verifies from one committed source of truth (_arch_url_sha_lines)."""
-    if name == "claude-code":
-        return [f"CLAUDE_CODE_VERSION={v}"]
+    if name == "opencode":
+        return [f"OPENCODE_VERSION={v}"]
     if name == "openspec":
         return [f"OPENSPEC_VERSION={v}"]
     if name == "pnpm":

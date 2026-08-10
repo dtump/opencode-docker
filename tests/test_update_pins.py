@@ -200,8 +200,8 @@ class TestRedirectAuthStrip(unittest.TestCase):
 class TestVersionVar(unittest.TestCase):
     """version_var() must derive the correct env-var name for each npm tool."""
 
-    def test_claude_code(self):
-        self.assertEqual(up.version_var("claude-code"), "CLAUDE_CODE_VERSION")
+    def test_opencode(self):
+        self.assertEqual(up.version_var("opencode"), "OPENCODE_VERSION")
 
     def test_openspec(self):
         self.assertEqual(up.version_var("openspec"), "OPENSPEC_VERSION")
@@ -214,7 +214,7 @@ class TestListNpmTools(unittest.TestCase):
     """--list-npm-tools / run_list_npm_tools(): TSV output, no network."""
 
     # The three npm tools expected, in TOOLS order.
-    _NPM_NAMES = ["claude-code", "openspec", "pnpm"]
+    _NPM_NAMES = ["opencode", "openspec", "pnpm"]
 
     def _capture_list(self):
         """Run run_list_npm_tools(), return (exit_code, stdout_lines)."""

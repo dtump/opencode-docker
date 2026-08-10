@@ -106,26 +106,26 @@ jobs:
           # image. Build is amd64-only (single-arch load is fine); arm64
           # coverage relies on the maintainers' local builds for now.
           load: true
-          tags: claude-docker:ci
+          tags: opencode:ci
           platforms: linux/amd64
           cache-from: type=gha
           cache-to: type=gha,mode=min
 
-      - name: Smoke test — claude --version matches Dockerfile pin
-        # Catches the 2.1.x failure mode where the JS launcher is installed
-        # but the native-binary postinstall isn't run, leaving `claude` as a
+      - name: Smoke test — opencode --version matches Dockerfile pin
+        # Catches the failure mode where the JS launcher is installed
+        # but the native-binary postinstall isn't run, leaving `opencode` as a
         # stub that errors at exec time. Asserts the actual reported version
-        # matches the CLAUDE_CODE_VERSION pin in pins/claude-code.env.
+        # matches the OPENCODE_VERSION pin in pins/opencode.env.
         run: |
           set -euo pipefail
-          EXPECTED=$(python3 update_pins.py --list-npm-tools | awk -F'\t' '$1=="claude-code"{print $5}')
-          ACTUAL=$(docker run --rm claude-docker:ci claude --version)
+          EXPECTED=$(python3 update_pins.py --list-npm-tools | awk -F'\t' '$1=="opencode"{print $5}')
+          ACTUAL=$(docker run --rm opencode:ci opencode --version)
           echo "Expected: ${EXPECTED}  Actual: ${ACTUAL}"
-          [[ "$ACTUAL" == "${EXPECTED} (Claude Code)" ]]
+          [[ "$ACTUAL" == "${EXPECTED}" ]]
 
       - name: Cross-platform smoke (Linux)
         # Drives smoke.sh across a matrix of cells, all reusing the already-loaded
-        # claude-docker:ci image from the build step above.  Do NOT move this to a
+        # opencode:ci image from the build step above.  Do NOT move this to a
         # separate job — a separate job gets a blank local daemon and cannot reuse
         # the image loaded by the build step.
         #
@@ -141,12 +141,12 @@ jobs:
         #   9. runner-uid/ro/no-optins       — read-only workspace (EROFS robustness)
         run: |
           set -euo pipefail
-          export IMAGE=claude-docker:ci
+          export IMAGE=opencode:ci
           RUNNER_UID=$(id -u)
 
           run_cell() {
             echo "--- Cell: $* ---"
-            IMAGE=claude-docker:ci bash smoke/smoke.sh "$@"
+            IMAGE=opencode:ci bash smoke/smoke.sh "$@"
           }
 
           # 1. Baseline: runner UID, cold volume, no opt-ins.

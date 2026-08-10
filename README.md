@@ -1,23 +1,29 @@
-# claude-docker
+# opencode-docker
 
-[![GitHub release](https://img.shields.io/github/v/release/schubergphilis/claude-docker)](https://github.com/schubergphilis/claude-docker/releases)
-[![License](https://img.shields.io/github/license/schubergphilis/claude-docker)](LICENSE)
+[![GitHub release](https://img.shields.io/github/v/release/dtump/opencode-docker)](https://github.com/dtump/opencode-docker/releases)
+[![License](https://img.shields.io/github/license/dtump/opencode-docker)](LICENSE)
 
-<img src="./assets/logos/claude-docker.png" width="250"></a>
-
-Run Claude Code in a container that inherits your setup but not your filesystem. Workspace access is scoped to the directories you pass in; your statusline, skills, agents, and slash commands ride along as read-only bind-mounts. CLI tools are preinstalled (`gh`, `glab`, `aws`, `openspec`, `uv`, `pnpm`, `tfenv`, `git-lfs`) — language runtimes are not: `tfenv` and `uv` fetch your project-pinned Terraform / Python on demand. Host credentials (`gh`, `glab`, `aws`, `tfe`) are opt-in per flag; nothing leaks in by default.
+Run OpenCode in a container that inherits your setup but not your filesystem. Workspace access is scoped to the directories you pass in; your skills, agents, commands, and global instructions ride along as read-only bind-mounts. CLI tools are preinstalled (`gh`, `glab`, `aws`, `openspec`, `uv`, `pnpm`, `tfenv`, `git-lfs`) — language runtimes are not: `tfenv` and `uv` fetch your project-pinned Terraform / Python on demand. Host credentials (`gh`, `glab`, `aws`, `tfe`) are opt-in per flag; nothing leaks in by default.
 
 The VCS and cloud CLIs (`gh`, `glab`, `aws`) need a flag to see host credentials — see [Credential opt-in](#credential-opt-in). The rest work out of the box.
+
+## For claude-docker users
+
+- Command, image, and env prefixes are now `opencode-docker`, `opencode`, and `OPENCODE_DOCKER_*` respectively (was `claude-docker`, `claude`, `CLAUDE_DOCKER_*`).
+- Host config is now `~/.config/opencode` instead of `~/.claude`.
+- Container-only config seed uses `opencode.docker.json` rather than Claude Code's `settings.docker.json`.
+- OpenCode’s CLI flags differ: the wrapper convenience option is `--auto` (was `--yolo`), and forwarded flags after `--` must be OpenCode flags; multi-workspaces are mounted but OpenCode opens from the first workspace.
+- Persistent state uses separate `opencode-*` volumes, so Claude sessions/login state do not carry over; users must configure/provider-login in OpenCode.
 
 ## Install
 
 ```bash
 # Build the image from your checkout (one-time; rerun after Dockerfile or tool pins change)
-docker build -t claude-code:local .
+docker build -t opencode:local .
 
 # Put on your PATH (create ~/bin if it doesn't exist)
 mkdir -p ~/bin
-ln -s "$(pwd)/run.sh" ~/bin/claude-docker
+ln -s "$(pwd)/run.sh" ~/bin/opencode-docker
 ```
 
 The build needs BuildKit (the Dockerfile uses `COPY --chmod`). Docker Desktop ships it by default. A Homebrew `docker` CLI with Colima does **not**: the buildx plugin is a separate formula, and without it `docker build` silently falls back to the legacy builder and dies at the `COPY --chmod` step with `the --chmod option requires BuildKit`. One-time fix:
@@ -32,34 +38,34 @@ Verify with `docker buildx version`, then rerun the same `docker build` — with
 
 ## Container runtime
 
-`claude-docker` runs on **docker or podman**. With no configuration it auto-detects the engine, preferring `docker` and falling back to `podman` — so a podman-only host (including Windows via `podman machine` + WSL backend, and podman-as-docker Linux setups) works with zero setup and never hits `docker: command not found`.
+`opencode-docker` runs on **docker or podman**. With no configuration it auto-detects the engine, preferring `docker` and falling back to `podman` — so a podman-only host (including Windows via `podman machine` + WSL backend, and podman-as-docker Linux setups) works with zero setup and never hits `docker: command not found`.
 
-To force an engine, set `CLAUDE_DOCKER_RUNTIME`:
+To force an engine, set `OPENCODE_DOCKER_RUNTIME`:
 
 ```bash
-CLAUDE_DOCKER_RUNTIME=podman claude-docker ~/repo
+OPENCODE_DOCKER_RUNTIME=podman opencode-docker ~/repo
 ```
 
 The env var is the canonical mechanism: it works everywhere — scripts, CI, editor "run" integrations, and non-interactive shells all inherit it. If you want a shorter interactive spelling, an alias is optional sugar (not a substitute — an alias only resolves at an interactive prompt, so scripts and editors still need the env var):
 
 ```bash
-alias claude-podman='CLAUDE_DOCKER_RUNTIME=podman claude-docker'
+alias opencode-podman='OPENCODE_DOCKER_RUNTIME=podman opencode-docker'
 ```
 
-Only `docker` and `podman` are accepted; any other value is rejected before anything runs. The image build is the engine's own command — `podman build -t claude-code:local .` on a podman host, mirroring the `docker build` line above.
+Only `docker` and `podman` are accepted; any other value is rejected before anything runs. The image build is the engine's own command — `podman build -t opencode:local .` on a podman host, mirroring the `docker build` line above.
 
-**Windows / Git Bash:** run `claude-docker` from Git Bash (MSYS/MINGW). The wrapper disables MSYS's automatic POSIX→Windows path rewriting for the engine's argv and translates host mount paths itself, so container-side paths reach `podman.exe`/`docker.exe` intact — no more `invalid option type "\Program Files\Git\workspaces\..."`.
+**Windows / Git Bash:** run `opencode-docker` from Git Bash (MSYS/MINGW). The wrapper disables MSYS's automatic POSIX→Windows path rewriting for the engine's argv and translates host mount paths itself, so container-side paths reach `podman.exe`/`docker.exe` intact — no more `invalid option type "\Program Files\Git\workspaces\..."`.
 
 ## Usage
 
 ```bash
-claude-docker                             # current dir as workspace
-claude-docker ~/repo-a ~/repo-b           # multi-workspace
-claude-docker --yolo ~/repo               # alias for --dangerously-skip-permissions
-claude-docker ~/repo -- --resume          # any claude flag after --
+opencode-docker                             # current dir as workspace
+opencode-docker ~/repo-a ~/repo-b           # multi-workspace (all mounted, first is cwd)
+opencode-docker --auto ~/repo               # alias for --auto (auto-approve permissions)
+opencode-docker ~/repo -- --resume          # any opencode flag after --
 ```
 
-`claude-docker --help` (or `-h`) prints every wrapper flag with a one-line explanation — the canonical reference.
+`opencode-docker --help` (or `-h`) prints every wrapper flag with a one-line explanation — the canonical reference.
 
 ### Credential opt-in
 
@@ -68,13 +74,13 @@ claude-docker ~/repo -- --resume          # any claude flag after --
 | Flag          | Effect                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `--aws`       | Mount `~/.aws/config` and `~/.aws/sso/` read-only and forward `AWS_PROFILE` / `AWS_REGION` / `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_SESSION_TOKEN`. `~/.aws/credentials` (long-lived keys) and `~/.aws/cli/cache/` are **not** mounted.                                                                                                                                                                                                                                                                                                                                 |
-| `--gh`        | Starts a per-session **auth proxy sidecar** that holds the GitHub token — the agent container never sees it. Token discovery is unchanged (`GH_TOKEN` / `GITHUB_TOKEN`, else host `gh auth token`, else a silent skip with no sidecar and legacy no-token behavior). When a token is found, the agent container gets a placeholder `GH_TOKEN=claude-docker-proxy`, GitHub traffic is redirected to the sidecar, and the real `Authorization` header is injected in transit. `/root/.config/gh` stays masked while the sidecar is active. See [GitHub auth proxy](#github-auth-proxy). |
-| `--gh-direct` | Legacy escape hatch: same token discovery as `--gh`, but forwards the real token straight into the agent container as `GH_TOKEN` — no sidecar. For custom-hostname GitHub (Enterprise **Server**, `*.ghe.com`) and hosts that can't run the sidecar. Mutually exclusive with `--gh` (combining both is a startup error) and shown as its own `gh-direct` statusline tag. Unmasks in-container `gh auth login` state, same as pre-proxy `--gh`.                                                                                                                                        |
+| `--gh`        | Starts a per-session **auth proxy sidecar** that holds the GitHub token — the agent container never sees it. Token discovery is unchanged (`GH_TOKEN` / `GITHUB_TOKEN`, else host `gh auth token`, else a silent skip with no sidecar and legacy no-token behavior). When a token is found, the agent container gets a placeholder `GH_TOKEN=opencode-docker-proxy`, GitHub traffic is redirected to the sidecar, and the real `Authorization` header is injected in transit. `/root/.config/gh` stays masked while the sidecar is active. See [GitHub auth proxy](#github-auth-proxy). |
+| `--gh-direct` | Legacy escape hatch: same token discovery as `--gh`, but forwards the real token straight into the agent container as `GH_TOKEN` — no sidecar. For custom-hostname GitHub (Enterprise **Server**, `*.ghe.com`) and hosts that can't run the sidecar. Mutually exclusive with `--gh` (combining both is a startup error) and shown as its own `gh-direct` statusline tag. Unmasks in-container `gh auth login` state, same as pre-proxy `--gh`. |
 | `--glab`      | Mount the platform-appropriate `glab-cli` config dir read-only (macOS: `~/Library/Application Support/glab-cli`, Linux: `~/.config/glab-cli`) and forward `GITLAB_TOKEN`. Unmasks in-container `glab auth login` state — without the flag, `/root/.config/glab-cli/` is hidden by a tmpfs overlay.                                                                                                                                                                                                                                                                                    |
 | `--tfe`       | Mount `~/.terraform.d/credentials.tfrc.json` read-only when present and forward `TF_TOKEN_app_terraform_io`. Targets `app.terraform.io` (HCP Terraform) only — self-hosted Terraform Enterprise hostnames and other `TF_TOKEN_<host>` variables are not forwarded. Unmasks in-container `terraform login` state — without the flag, `/root/.terraform.d/` is hidden by a tmpfs overlay. See [Terraform Cloud workflow](#terraform-cloud-workflow).                                                                                                                                    |
 | `--registry`  | Surface host-native private package-registry config so in-container `uv` / `pnpm` / pip installs resolve against your private feed (CodeArtifact, Artifactory, Nexus, …) instead of public npm/PyPI. Read-only mounts of `~/.npmrc` / `uv.toml` / `pip.conf` plus `UV_INDEX_*` / `npm_config_registry` / `PIP_*` env when set. `~/.netrc` is intentionally **not** mounted (too broad). Runtime-only; the build is unaffected. **Whole-file mounts** — see [Private package registries](#private-package-registries) for the full channel list and the scoping caution.               |
 
-Combine as needed: `claude-docker --aws --gh ~/repo`. `--gh` and `--gh-direct` cannot be combined with each other.
+Combine as needed: `opencode-docker --aws --gh ~/repo`. `--gh` and `--gh-direct` cannot be combined with each other.
 
 ### Session flags
 
@@ -86,49 +92,44 @@ Combine as needed: `claude-docker --aws --gh ~/repo`. `--gh` and `--gh-direct` c
 `--ro` does **not** block credential flags or restrict network egress — for an isolated review session, combine `--ephemeral` and `--ro` and pass no credential flags:
 
 ```bash
-claude-docker --ephemeral --ro ~/untrusted-repo
+opencode-docker --ephemeral --ro ~/untrusted-repo
 ```
 
-For `--iterm` / `--tmux` (teammate split panes), see [Split-pane agent teams](#split-pane-agent-teams). In-container YOLO narrows the blast radius compared to running on the host, but see [Threat model](#threat-model) for what it does and doesn't protect.
+Use `--iterm` or `--tmux` to run the OpenCode TUI in tmux. `--auto` narrows the filesystem blast radius compared to auto-approving permissions on the host, but see [Threat model](#threat-model) for what it does and doesn't protect.
 
 ### Resuming sessions across workspaces
 
-Conversation history persists in the shared `claude-code-home` volume (skipped under `--ephemeral`), so `claude --resume` followed by `Ctrl+A` lists sessions from every workspace you've ever used — not just the one you're currently in.
+OpenCode state, including provider authentication and conversation history, persists under the shared `opencode-root` volume (skipped under `--ephemeral`). Use `opencode --continue` to continue the last session for the current project or `opencode --session <id>` to select one explicitly.
 
 ## Host config parity
 
-On every run, these items are dereferenced (symlinks resolved) and bind-mounted read-only into the container at the equivalent `/root/.claude/` path:
+On every run, these items are dereferenced (symlinks resolved) and bind-mounted read-only into the container at the equivalent `/root/.config/opencode/` path:
 
 | Item                              | Purpose                       |
 | --------------------------------- | ----------------------------- |
-| `~/.claude/agents/`               | custom agent definitions      |
-| `~/.claude/skills/`               | custom skills                 |
-| `~/.claude/commands/`             | slash commands                |
-| `~/.claude/CLAUDE.md`             | global preferences (`gprefs`) |
-| `~/.claude/statusline-command.sh` | statusline renderer           |
+| `~/.config/opencode/agents/`      | custom agent definitions      |
+| `~/.config/opencode/skills/`      | custom skills                 |
+| `~/.config/opencode/commands/`    | slash commands                |
+| `~/.config/opencode/AGENTS.md`    | global preferences (`gprefs`) |
 
-For `settings.json`, maintain a dedicated `~/.claude/settings.docker.json` (any valid Claude `settings.json` schema) — when present it's copied to `/root/.claude/settings.json` at container start. A copy rather than a bind mount, because Claude Code saves settings by renaming a tmp file over `settings.json` and `rename()` over a mountpoint fails with `EBUSY` — so in-session settings changes (effort, model, theme) actually save; they last for that container run, are re-seeded from the host file on the next start, and are never written back to the host. Keeping it separate from your host `settings.json` avoids dragging macOS-only keys (`sandbox`, `env.SSL_CERT_FILE`, `enabledPlugins`) or host-filesystem `hooks` into the container. See [`examples/settings.docker.json`](examples/settings.docker.json) for a starting point.
+For OpenCode configuration, maintain a dedicated `~/.config/opencode/opencode.docker.json` (any valid OpenCode `opencode.json` schema). When present it is copied to `/root/.config/opencode/opencode.json` at container start, so the container can modify its own config without writing back to the host; the host seed is reapplied on the next run. Keeping it separate from your host `opencode.json` avoids dragging macOS-only keys or host-filesystem paths into the container. See [`examples/opencode.docker.json`](examples/opencode.docker.json) for a valid starting configuration.
 
-### Alternate Claude config dirs (`--claude-dir`)
+### Alternate OpenCode config dirs (`--opencode-dir`)
 
-If you keep more than one host Claude config (e.g. a personal `~/.claude/` and a work-only `~/.claude-work/`), point the wrapper at the one you want with `--claude-dir=PATH` or the `CLAUDE_DOCKER_CONFIG_DIR` env var:
+If you keep more than one host OpenCode config (e.g. a personal `~/.config/opencode/` and a work-only `~/.config/opencode-work/`), point the wrapper at the one you want with `--opencode-dir=PATH` or the `OPENCODE_DOCKER_CONFIG_DIR` env var:
 
 ```bash
-claude-docker --claude-dir=~/.claude-work ~/repo
-CLAUDE_DOCKER_CONFIG_DIR=~/.claude-work claude-docker ~/repo
+opencode-docker --opencode-dir=~/.config/opencode-work ~/repo
+OPENCODE_DOCKER_CONFIG_DIR=~/.config/opencode-work opencode-docker ~/repo
 ```
 
-The chosen dir takes the place of `~/.claude` for every item in the parity table above (agents, skills, commands, `CLAUDE.md`, statusline, `settings.docker.json`).
+The chosen dir takes the place of `~/.config/opencode` for every item in the parity table above (agents, skills, commands, `AGENTS.md`, and `opencode.docker.json`).
 
 ### Git identity
 
 `user.name` and `user.email` from your global git config (`~/.gitconfig`) are forwarded automatically as `GIT_AUTHOR_NAME`/`GIT_AUTHOR_EMAIL`/`GIT_COMMITTER_NAME`/`GIT_COMMITTER_EMAIL` so in-container `git commit` works out of the box with your real identity — no `git -c user.email=...` dance, no wrong-author commits. Not gated by a flag: identity is already public on every commit you've made. Signing keys, credential helpers, aliases, and hooks are NOT forwarded — those are host-specific (keychains, absolute paths) and would misfire inside the container.
 
-### Statusline tag for active opt-ins
-
-`run.sh` exports `CLAUDE_DOCKER_FLAGS` into the container with the comma-separated list of active opt-ins (`gh`, `gh-direct`, `aws`, `glab`, `tfe`, `ephemeral`, `ro`) and wraps the host statusline script so a yellow `docker:<flags>` tag is prepended to whatever your personal statusline renders. The variable is set by the wrapper for the statusline to read — not a user-tunable knob. `--yolo` / `--dangerously-skip-permissions` is not surfaced here — Claude Code's own mode indicator already makes it obvious. The wrapper is a no-op passthrough when no opt-ins are active, so your statusline looks unchanged on a plain `claude-docker ~/repo`.
-
-The image sets `IS_SANDBOX=1` — historically required to let `--yolo` / `--dangerously-skip-permissions` work when claude ran as root. The entrypoint now drops to the host UID before exec'ing claude, so the root-user check no longer triggers in steady state; `IS_SANDBOX=1` remains as a safety net for the legacy `HOST_UID=0` fall-through path. OS-level hardening comes from `--cap-drop ALL` (with `CHOWN`, `SETUID`, `SETGID`, `DAC_READ_SEARCH` re-added for transient entrypoint use only), `--security-opt no-new-privileges`, the Docker default seccomp profile, `--init` (tini reaps subprocess zombies), and the bind-mount layout. See [File ownership](#file-ownership) and [Threat model](#threat-model) below.
+The image sets `IS_SANDBOX=1` — historically required to let permission auto-approval work when opencode ran as root. The entrypoint now drops to the host UID before exec'ing opencode, so the root-user check no longer triggers in steady state; `IS_SANDBOX=1` remains as a safety net for the legacy `HOST_UID=0` fall-through path. OS-level hardening comes from `--cap-drop ALL` (with `CHOWN`, `SETUID`, `SETGID`, `DAC_READ_SEARCH` re-added for transient entrypoint use only), `--security-opt no-new-privileges`, the Docker default seccomp profile, `--init` (tini reaps subprocess zombies), and the bind-mount layout. See [File ownership](#file-ownership) and [Threat model](#threat-model) below.
 
 ## Auth model
 
@@ -136,36 +137,36 @@ Credentials are opt-in per run — see [Credential opt-in](#credential-opt-in) a
 
 ### AWS SSO flow (`--aws`)
 
-Standard SSO usage works unchanged: `aws sso login --profile X && export AWS_PROFILE=X` on the host, then `claude-docker --aws`. The container reads the short-lived SSO bearer token from `~/.aws/sso/cache` via the read-only mount.
+Standard SSO usage works unchanged: `aws sso login --profile X && export AWS_PROFILE=X` on the host, then `opencode-docker --aws`. The container reads the short-lived SSO bearer token from `~/.aws/sso/cache` via the read-only mount.
 
 If you'd rather not mount `sso/cache` either, flatten to env vars after login:
 
 ```bash
 aws sso login --profile X
 eval "$(aws configure export-credentials --profile X --format env)"
-claude-docker --aws ...
+opencode-docker --aws ...
 ```
 
 Container then uses `AWS_ACCESS_KEY_ID`/`SECRET`/`SESSION_TOKEN` and the SSO cache is not needed inside. Temp creds freeze at container start (~1h TTL).
 
 ### GitHub auth proxy
 
-`--gh` starts a per-session **auth proxy sidecar** (pinned Caddy image `caddy:2.11.4@sha256:844f60b64e4724a5aa8245e019dace0d3f199f7433ce6c57676cb30a920dbad9`, override via `CLAUDE_DOCKER_PROXY_IMAGE`) that holds the real GitHub token so the agent container never sees it. Token discovery is unchanged: `GH_TOKEN` / `GITHUB_TOKEN`, else host `gh auth token`, else a silent skip — no token found means no sidecar, and the session behaves like the legacy no-token fallback (empty `GH_TOKEN`, in-container `gh auth login` still works and persists as before).
+`--gh` starts a per-session **auth proxy sidecar** (pinned Caddy image `caddy:2.11.4@sha256:844f60b64e4724a5aa8245e019dace0d3f199f7433ce6c57676cb30a920dbad9`, override via `OPENCODE_DOCKER_PROXY_IMAGE`) that holds the real GitHub token so the agent container never sees it. Token discovery is unchanged: `GH_TOKEN` / `GITHUB_TOKEN`, else host `gh auth token`, else a silent skip — no token found means no sidecar, and the session behaves like the legacy no-token fallback (empty `GH_TOKEN`, in-container `gh auth login` still works and persists as before).
 
 When a token is found:
 
-- The agent container gets a placeholder `GH_TOKEN=claude-docker-proxy` — enough for `gh` to consider itself authenticated. `gh auth token` inside the container returns this placeholder, not your real token, and it doesn't appear anywhere in the container's environment or filesystem.
+- The agent container gets a placeholder `GH_TOKEN=opencode-docker-proxy` — enough for `gh` to consider itself authenticated. `gh auth token` inside the container returns this placeholder, not your real token, and it doesn't appear anywhere in the container's environment or filesystem.
 - `github.com`, `api.github.com`, and `uploads.github.com` resolve to the sidecar via `--add-host`. `objects.githubusercontent.com` and `codeload.github.com` (pre-signed release/archive URLs) are **not** intercepted — they resolve normally and never see the token.
 - The sidecar terminates TLS for those three hostnames with a CA generated fresh for the session; the private key never leaves the sidecar and is destroyed with it at teardown. The public root is installed into the agent container's trust store by the entrypoint (`update-ca-certificates`, before privilege drop), and `NODE_EXTRA_CA_CERTS` points at it, so `git`, `gh`, and node-based tooling all trust it natively. `UV_SYSTEM_CERTS=1` is set for the same reason: `uv`'s rustls client reads neither the OS bundle nor `NODE_EXTRA_CA_CERTS` by default, so without it every `uv` fetch from `github.com` fails `invalid peer certificate: UnknownIssuer` while `git`/`gh`/`curl` work. Verification stays on — `uv` just checks against the same session root.
 - The sidecar injects the real `Authorization` header in transit — `Basic base64(x-access-token:<token>)` for `github.com` (git smart-HTTP), `Bearer <token>` for `api.github.com` / `uploads.github.com` — replacing anything the client sent. One deliberate exception: a **`HEAD` on `github.com/<owner>/<repo>/releases/download/…`** is forwarded with the header *removed*. GitHub routes a release-asset `HEAD` carrying any `Authorization` to a legacy `objects.githubusercontent.com` pre-signed URL that answers `401` to every method, while an anonymous `HEAD` gets the working `release-assets.githubusercontent.com` CDN — so tools that probe with `HEAD` before `GET` (`uv`, `pip`) could not install from a release-asset URL at all. The credential buys nothing there: that endpoint doesn't accept token auth in the first place (see the limitation on private release assets below). `GET` on the same path keeps its credential, as does everything else. `/root/.config/gh` stays tmpfs-masked while the sidecar is active: the placeholder token already satisfies `gh`, so persisted in-container login state would just be a second, unneeded secret.
 
-**Isolation and lifecycle.** Each invocation gets its own network (`claude-gh-<id>`) and sidecar (`claude-gh-proxy-<id>`), so concurrent sessions never share a token copy, a CA, or traffic. Teardown happens in `run.sh`'s existing `EXIT` trap, extended and installed _before_ any sidecar or network is created, so a failure mid-startup can't leak either resource. Startup is **fail-closed**: if the sidecar won't start or its CA can't be retrieved in time, `run.sh` tears everything down and exits with an error — it never falls back to forwarding the real token. `run.sh` prints the sidecar's container name at startup.
+**Isolation and lifecycle.** Each invocation gets its own network (`opencode-gh-<id>`) and sidecar (`opencode-gh-proxy-<id>`), so concurrent sessions never share a token copy, a CA, or traffic. Teardown happens in `run.sh`'s existing `EXIT` trap, extended and installed _before_ any sidecar or network is created, so a failure mid-startup can't leak either resource. Startup is **fail-closed**: if the sidecar won't start or its CA can't be retrieved in time, `run.sh` tears everything down and exits with an error — it never falls back to forwarding the real token. `run.sh` prints the sidecar's container name at startup.
 
 **Re-login and rotation are host-managed.** Under the proxy, GitHub auth is not something you manage from inside the container. `gh auth status` reports authentication via the `GH_TOKEN` env var (the placeholder), so `gh auth login` inside the container is a no-op: `gh` won't override an env-var token, `/root/.config/gh` is masked and ephemeral, and the sidecar rewrites the `Authorization` header on every request regardless of what's stored inside. To switch account or change scopes, do it **on the host** (`gh auth login` / `gh auth refresh`, or export a different `GH_TOKEN`) and relaunch — the sidecar reads the host token fresh at each container start, so a new session is how a changed credential flows in. A running container keeps working on the token it captured at launch until _that container_ exits; host-side changes never propagate into it live. (In-container `gh auth login` only works in the two no-sidecar modes: `--gh-direct`, and `--gh` when no host token was found.)
 
 > **Revoking vs. re-login — they are not the same.** `gh auth logout` / `login` / `refresh` only change your host's _local_ credential store; none of them revokes a previously-issued token at GitHub. GitHub CLI's OAuth token is long-lived, so a token captured earlier (by a running sidecar, or exfiltrated) stays valid until you **explicitly revoke** it: for OAuth login, _GitHub → Settings → Applications → Authorized OAuth Apps → GitHub CLI → Revoke_; for a PAT, delete it under _Settings → Developer settings_. Relaunching only stops a _new_ container from using the old token — it does not invalidate the old one.
 
-**Filtering and policy.** The generated Caddyfile blocks the one broadly destructive call by default: `DELETE` on `/repos/{owner}/{repo}` gets a `403` naming the claude-docker gh-proxy policy and never reaches GitHub. Extend it with `CLAUDE_DOCKER_GH_POLICY=<path>` pointing at a Caddyfile snippet — `run.sh` stages it and `import`s it into the **`api.github.com` site block only** (a snippet written for `github.com` or `uploads.github.com` traffic has no effect). Policy config lives solely in the sidecar; the agent container can neither read nor write it.
+**Filtering and policy.** The generated Caddyfile blocks the one broadly destructive call by default: `DELETE` on `/repos/{owner}/{repo}` gets a `403` naming the opencode-docker gh-proxy policy and never reaches GitHub. Extend it with `OPENCODE_DOCKER_GH_POLICY=<path>` pointing at a Caddyfile snippet — `run.sh` stages it and `import`s it into the **`api.github.com` site block only** (a snippet written for `github.com` or `uploads.github.com` traffic has no effect). Policy config lives solely in the sidecar; the agent container can neither read nor write it.
 
 **Audit log.** Every proxied request (method, path, status — no headers, no token) is written as structured JSON to the sidecar's stdout. View it live with `docker logs <sidecar-name>` (the name `run.sh` prints at startup). The log is deliberately not persisted past the session — it's meant for live debugging, not a compliance trail. It's still a net improvement: host-side `gh` usage has no audit log at all today.
 
@@ -187,14 +188,14 @@ Standard usage targets `app.terraform.io` (HCP Terraform):
 terraform login app.terraform.io
 
 # Per session
-claude-docker --tfe ~/repo
+opencode-docker --tfe ~/repo
 
 # Inside the container, fetch the project-pinned terraform version
 tfenv install            # reads .terraform-version, downloads from releases.hashicorp.com
 terraform plan
 ```
 
-The image ships `tfenv` (a pure-bash terraform version manager) and **does not** ship a pre-installed `terraform` binary version — versions are project-pinned (`required_version` / `.terraform-version`) and a single bundled version would drift against real workspaces. `tfenv install` writes terraform binaries under `/opt/tfenv/versions/`, which is **not** in the `claude-code-root` named volume; downloads do not persist across `docker run --rm` exits. Power users can build a child image (`FROM claude-code:local`) that runs `tfenv install <version>` at build time to bake a specific version into a derived image.
+The image ships `tfenv` (a pure-bash terraform version manager) and **does not** ship a pre-installed `terraform` binary version — versions are project-pinned (`required_version` / `.terraform-version`) and a single bundled version would drift against real workspaces. `tfenv install` writes terraform binaries under `/opt/tfenv/versions/`, which is **not** in the `opencode-root` named volume; downloads do not persist across `docker run --rm` exits. Power users can build a child image (`FROM opencode:local`) that runs `tfenv install <version>` at build time to bake a specific version into a derived image.
 
 Token alternative: instead of (or in addition to) the credentials file, export `TF_TOKEN_app_terraform_io=<token>` on the host and `--tfe` will forward it. The terraform CLI honours both.
 
@@ -208,7 +209,7 @@ Token alternative: instead of (or in addition to) the credentials file, export `
 >
 > The forwarded _env vars_ are tightly scoped (named individually), so the over-share is specific to the npmrc/pip.conf file mounts. To minimise exposure, prefer the env-var channel or keep registry-only config files, and remember the container has full network egress (see [Threat model](#threat-model)).
 
-`--registry` makes the in-container package managers resolve against a private feed (AWS CodeArtifact, Artifactory, Nexus, GitLab/Azure, …) the same way your pipelines do — without inventing any claude-docker-specific config. It surfaces the package managers' **own native config** from the host, read-only:
+`--registry` makes the in-container package managers resolve against a private feed (AWS CodeArtifact, Artifactory, Nexus, GitLab/Azure, …) the same way your pipelines do — without inventing any opencode-docker-specific config. It surfaces the package managers' **own native config** from the host, read-only:
 
 | Channel                       | npm / pnpm                                                                   | uv                                                                                                                                            | pip / pipenv                                                                                               |
 | ----------------------------- | ---------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
@@ -231,36 +232,36 @@ aws codeartifact login --tool pip --domain D --domain-owner ACCT --repository R 
 export UV_INDEX_URL="https://aws:$(aws codeartifact get-authorization-token --domain D --domain-owner ACCT --query authorizationToken --output text)@D-ACCT.d.codeartifact.REGION.amazonaws.com/pypi/R/simple/"
 
 # Per session
-claude-docker --registry ~/repo
+opencode-docker --registry ~/repo
 ```
 
 The captured token freezes for the life of the container (a CodeArtifact token is ≤12h) — when it expires, re-run the host `login`/`export` and relaunch. Same posture as the `--aws` SSO credentials.
 
 **No Python is bundled.** `pip`/`pipenv` themselves are not in the image (uv fetches its own Python; project runtimes live in child images). Run a pip-based tool via `uvx pipenv …` — pipenv shells out to pip, which reads the forwarded `pip.conf` / `PIP_*`. Caveat: if your feed is fully locked down with no public upstream, `pipenv` itself must be mirrored there for `uvx` to fetch it.
 
-**Build vs. runtime.** `--registry` is **runtime-only**. The image _build_ always resolves its own tooling (claude-code, openspec, pnpm) against the public npm registry / PyPI regardless of any private registry configured on your host — your `~/.npmrc` and `npm_config_*` env are neither in the build context nor inherited by Dockerfile `RUN` steps. That isolation is what keeps the build reproducible from the committed pins. Routing the build itself through a private registry is intentionally out of scope.
+**Build vs. runtime.** `--registry` is **runtime-only**. The image _build_ always resolves its own tooling (opencode-ai, openspec, pnpm) against the public npm registry / PyPI regardless of any private registry configured on your host — your `~/.npmrc` and `npm_config_*` env are neither in the build context nor inherited by Dockerfile `RUN` steps. That isolation is what keeps the build reproducible from the committed pins. Routing the build itself through a private registry is intentionally out of scope.
 
 ## File ownership
 
-Files created inside the container appear on the host owned by the user who launched `claude-docker`, not by `root`. The wrapper forwards `HOST_UID` / `HOST_GID` and the in-container entrypoint creates a matching passwd entry and drops to it via `runuser` before exec'ing claude. Persistent state in the `claude-code-root` and `claude-code-home` named volumes is chowned on first start, so an existing volume from before this change is fixed up the next time you run `claude-docker`.
+Files created inside the container appear on the host owned by the user who launched `opencode-docker`, not by `root`. The wrapper forwards `HOST_UID` / `HOST_GID` and the in-container entrypoint creates a matching passwd entry and drops to it via `runuser` before exec'ing opencode. Persistent state in the `opencode-root` and `opencode-home` named volumes is chowned on first start, so an existing volume from before this change is fixed up the next time you run `opencode-docker`.
 
 ## Threat model
 
-The container narrows blast radius vs. running `claude --yolo` on the host, but it is **not** a full sandbox:
+The container narrows blast radius versus running `opencode --auto` on the host, but it is **not** a full sandbox:
 
 - **Protected:** host filesystem outside your passed workspaces, host `~/.aws/credentials` (long-lived keys), host AWS/glab config dirs are read-only from inside (container can't persist changes back).
 - **Exposed (per session):** your passed workspaces are read-write (unless `--ro`); host credentials when opted in — short-lived AWS SSO bearer tokens (`~/.aws/sso/cache`), the glab config token, `~/.terraform.d/credentials.tfrc.json`, and `GITLAB_TOKEN` / `TF_TOKEN_app_terraform_io` / `AWS_*` env vars are all readable inside the container; under `--gh-direct` (but **not** plain `--gh`, see [GitHub auth proxy](#github-auth-proxy)), the real `GH_TOKEN` is readable inside the container too; under `--registry`, the **full contents** of mounted `~/.npmrc` / `pip.conf` (and forwarded `*_TOKEN` / `UV_INDEX_*_PASSWORD` env) are readable — and those files can hold tokens for registries beyond the one you intended (`~/.netrc` is deliberately not mounted, see [Private package registries](#private-package-registries)); full outbound network with no egress filtering.
-- **GitHub via the proxy (`--gh`):** the real token itself no longer reaches the agent container — the biggest prior exposure for this flag is gone. What remains is _live capability_: a compromised session can still act on GitHub through the sidecar for the life of the session, bounded by its policy (default: no repo deletion, extensible via `CLAUDE_DOCKER_GH_POLICY`) and recorded in its audit log if you capture it (`docker logs <sidecar-name>`) before teardown. The sidecar is a policy point and a record, not a guarantee that a compromised session can't act on GitHub at all.
-- **Exposed (cross-session):** the persistent `claude-code-root` and `claude-code-home` named volumes hold the Claude OAuth token, in-container `gh` / `glab` / `terraform login` state, shell history, and conversation history. `claude --resume` can replay sessions from **any** past workspace — see [Resuming sessions across workspaces](#resuming-sessions-across-workspaces). Skipped under `--ephemeral`.
-- **Runtime code-fetch:** `npx`, `pnpm dlx`, `uvx`, and `tfenv install` fetch and execute arbitrary code from public sources on first use — npm and PyPI for the package managers, `releases.hashicorp.com` for `tfenv install`. Under `--yolo`, a prompt-injected workspace can trigger these. `pnpm dlx` adds zero marginal blast radius vs the already-reachable `npx`; `uvx` is a _new_ PyPI execution primitive (no Python runtime existed in the image before); `tfenv install` is a _new_ HashiCorp release-channel execution primitive whose downloaded `terraform` binary is intentionally **not** sha256-pinned in the image (versions are project-pinned via `.terraform-version`, so the image stays neutral on version policy). Build-time installs of the CLIs themselves are pinned by version + sha256 where the ecosystem supports it (uv binary, glab .deb, AWS CLI, tfenv source archive), and by version only for npm-backed packages (claude-code, openspec, pnpm) — `--ignore-scripts` blocks lifecycle scripts at install time but does not protect against a compromised registry serving a malicious tarball at the pinned version.
-- **Private registries (`--registry`):** this _narrows_ where the package managers resolve packages — pointing `uv` / `pnpm` / pip at a curated private feed instead of public npm/PyPI — which can reduce dependency-confusion exposure, but only as much as your host config and the feed's upstream setup dictate. It is registry-resolution config, **not** network egress filtering: `npx`, `git+https` installs, `curl`, and every other egress path are unaffected, and `--yolo` runtime code-fetch (above) still reaches whatever the resolved feed serves. Treat it as supply-chain hygiene, not a network boundary.
-- **If a session is compromised:** assume exfiltration already happened (full network egress). Then: rotate the host sessions for every flag that was passed — `glab auth login`, `aws sso login`, `terraform login`; under `--registry`, re-run `aws codeartifact login` / rotate the npm·PyPI registry tokens exposed via the mounted `~/.npmrc` / `pip.conf`. **GitHub is different under `--gh`:** the real token never entered the container, so there's no token to rotate on that basis alone — but review what the session _did_ through the proxy during its lifetime (the sidecar's audit log helps, if you captured it via `docker logs` before teardown), and revert any resulting GitHub-side actions. If the token itself may be exposed (a `--gh-direct` session, a version predating this proxy, or any doubt), **revoke** it — not merely `gh auth logout`/`login`, which only clear local state and leave the issued token valid at GitHub: revoke the _GitHub CLI_ authorization under _Settings → Applications → Authorized OAuth Apps_, or delete the PAT under _Settings → Developer settings_ if you used one. In all cases: revoke the Claude OAuth credential, and clear the named volumes (`docker volume rm claude-code-root claude-code-home`) to flush in-container auth state and cross-workspace conversation history that `claude --resume` could otherwise replay.
+- **GitHub via the proxy (`--gh`):** the real token itself no longer reaches the agent container — the biggest prior exposure for this flag is gone. What remains is _live capability_: a compromised session can still act on GitHub through the sidecar for the life of the session, bounded by its policy (default: no repo deletion, extensible via `OPENCODE_DOCKER_GH_POLICY`) and recorded in its audit log if you capture it (`docker logs <sidecar-name>`) before teardown. The sidecar is a policy point and a record, not a guarantee that a compromised session can't act on GitHub at all.
+- **Exposed (cross-session):** the persistent `opencode-root` and `opencode-home` named volumes hold the OpenCode OAuth token, in-container `gh` / `glab` / `terraform login` state, shell history, and conversation history. `opencode --resume` can replay sessions from **any** past workspace — see [Resuming sessions across workspaces](#resuming-sessions-across-workspaces). Skipped under `--ephemeral`.
+- **Runtime code-fetch:** `npx`, `pnpm dlx`, `uvx`, and `tfenv install` fetch and execute arbitrary code from public sources on first use — npm and PyPI for the package managers, `releases.hashicorp.com` for `tfenv install`. Under `--auto`, a prompt-injected workspace can trigger these. `pnpm dlx` adds zero marginal blast radius vs the already-reachable `npx`; `uvx` is a _new_ PyPI execution primitive (no Python runtime existed in the image before); `tfenv install` is a _new_ HashiCorp release-channel execution primitive whose downloaded `terraform` binary is intentionally **not** sha256-pinned in the image (versions are project-pinned via `.terraform-version`, so the image stays neutral on version policy). Build-time installs of the CLIs themselves are pinned by version + sha256 where the ecosystem supports it (uv binary, glab .deb, AWS CLI, tfenv source archive), and by version only for npm-backed packages (opencode-ai, openspec, pnpm) — `--ignore-scripts` blocks lifecycle scripts at install time but does not protect against a compromised registry serving a malicious tarball at the pinned version.
+- **Private registries (`--registry`):** this _narrows_ where the package managers resolve packages — pointing `uv` / `pnpm` / pip at a curated private feed instead of public npm/PyPI — which can reduce dependency-confusion exposure, but only as much as your host config and the feed's upstream setup dictate. It is registry-resolution config, **not** network egress filtering: `npx`, `git+https` installs, `curl`, and every other egress path are unaffected, and `--auto` runtime code-fetch (above) still reaches whatever the resolved feed serves. Treat it as supply-chain hygiene, not a network boundary.
+- **If a session is compromised:** assume exfiltration already happened (full network egress). Then: rotate the host sessions for every flag that was passed — `glab auth login`, `aws sso login`, `terraform login`; under `--registry`, re-run `aws codeartifact login` / rotate the npm·PyPI registry tokens exposed via the mounted `~/.npmrc` / `pip.conf`. **GitHub is different under `--gh`:** the real token never entered the container, so there's no token to rotate on that basis alone — but review what the session _did_ through the proxy during its lifetime (the sidecar's audit log helps, if you captured it via `docker logs` before teardown), and revert any resulting GitHub-side actions. If the token itself may be exposed (a `--gh-direct` session, a version predating this proxy, or any doubt), **revoke** it — not merely `gh auth logout`/`login`, which only clear local state and leave the issued token valid at GitHub: revoke the _GitHub CLI_ authorization under _Settings → Applications → Authorized OAuth Apps_, or delete the PAT under _Settings → Developer settings_ if you used one. In all cases: revoke the OpenCode OAuth credential, and clear the named volumes (`docker volume rm opencode-root opencode-home`) to flush in-container auth state and cross-workspace conversation history that `opencode --resume` could otherwise replay.
 
-Hardening applied at runtime: `--cap-drop ALL --cap-add CHOWN --cap-add SETUID --cap-add SETGID --cap-add DAC_READ_SEARCH` — the four added caps are held only during entrypoint setup and cleared from the effective / permitted / ambient sets by the kernel when the entrypoint drops UID 0 → host UID (the bounding set retains them but is inert under `no-new-privileges`), so claude itself runs with no usable capabilities; `--security-opt no-new-privileges`; `--init` (tini reaps subprocess zombies — `runuser` would otherwise be PID 1); container starts as root and drops to the host user before exec'ing claude (see [File ownership](#file-ownership)); the Docker default seccomp profile; scoped workspace bind-mounts; tmpfs masks over non-opted-in credential paths. Build-time: pinned base image digest, sha256-verified downloads where the ecosystem supports it (uv, glab, AWS CLI, tfenv source); npm packages (claude-code, openspec, pnpm) are version-pinned with `--ignore-scripts` but not sha256-verified — a compromised npm registry serving a malicious tarball at the pinned version would not be caught at build time. **Not** applied: read-only root filesystem, user-namespace remapping, custom seccomp profile (Docker's default is in use), network egress filtering, resource limits.
+Hardening applied at runtime: `--cap-drop ALL --cap-add CHOWN --cap-add SETUID --cap-add SETGID --cap-add DAC_READ_SEARCH` — the four added caps are held only during entrypoint setup and cleared from the effective / permitted / ambient sets by the kernel when the entrypoint drops UID 0 → host UID (the bounding set retains them but is inert under `no-new-privileges`), so opencode itself runs with no usable capabilities; `--security-opt no-new-privileges`; `--init` (tini reaps subprocess zombies — `runuser` would otherwise be PID 1); container starts as root and drops to the host user before exec'ing opencode (see [File ownership](#file-ownership)); the Docker default seccomp profile; scoped workspace bind-mounts; tmpfs masks over non-opted-in credential paths. Build-time: pinned base image digest, sha256-verified downloads where the ecosystem supports it (uv, glab, AWS CLI, tfenv source); npm packages (opencode-ai, openspec, pnpm) are version-pinned with `--ignore-scripts` but not sha256-verified — a compromised npm registry serving a malicious tarball at the pinned version would not be caught at build time. **Not** applied: read-only root filesystem, user-namespace remapping, custom seccomp profile (Docker's default is in use), network egress filtering, resource limits.
 
 ## Updating pinned tool versions
 
-`uv`, `glab`, `aws-cli`, and `tfenv` are downloaded directly from GitHub/GitLab/vendor sites rather than from a language package registry, so nothing else verifies the bytes. Each is pinned to a version **and** a per-architecture sha256 that the Dockerfile checks (`sha256sum -c`) before installing. The npm-installed tools (`claude-code`, `openspec`, `pnpm`) are pinned by version only — `npm install` already verifies the tarball against the registry's `dist.integrity`, and CI additionally runs `npm audit signatures`.
+`uv`, `glab`, `aws-cli`, and `tfenv` are downloaded directly from GitHub/GitLab/vendor sites rather than from a language package registry, so nothing else verifies the bytes. Each is pinned to a version **and** a per-architecture sha256 that the Dockerfile checks (`sha256sum -c`) before installing. The npm-installed tools (`opencode-ai`, `openspec`, `pnpm`) are pinned by version only — `npm install` already verifies the tarball against the registry's `dist.integrity`, and CI additionally runs `npm audit signatures`.
 
 The pins live in version-controlled fragments under [`pins/`](pins/), one `pins/<tool>.env` per tool, which the Dockerfile `COPY`s and sources at build time — so `docker build` is reproducible from the committed files.
 
@@ -277,13 +278,13 @@ For each tool it selects the newest stable version at least 7 days old, download
 
 `nodejs` (from NodeSource's signed apt repo) and the `ubuntu` base-image digest are pinned manually: the script reports base-digest drift but does not rewrite it, since moving the base OS is a deliberate, separately-reviewed change.
 
-The [GitHub auth proxy](#github-auth-proxy) sidecar's Caddy image is pinned manually too, but lives outside this whole mechanism: the digest is a default in `run.sh` (`CLAUDE_DOCKER_PROXY_IMAGE`), not a file under `pins/`, and `update_pins.py` never touches it. That's deliberate — a Caddy upgrade can change Caddyfile directive semantics, i.e. the security-critical config this feature generates, so bumping it means reading the changelog and validating the generated Caddyfile against the new version by hand, not taking an automated version bump on faith.
+The [GitHub auth proxy](#github-auth-proxy) sidecar's Caddy image is pinned manually too, but lives outside this whole mechanism: the digest is a default in `run.sh` (`OPENCODE_DOCKER_PROXY_IMAGE`), not a file under `pins/`, and `update_pins.py` never touches it. That's deliberate — a Caddy upgrade can change Caddyfile directive semantics, i.e. the security-critical config this feature generates, so bumping it means reading the changelog and validating the generated Caddyfile against the new version by hand, not taking an automated version bump on faith.
 
 ## Git worktrees
 
 Git worktrees embed the path between the worktree and its repo's `.git/` in two link files. By default those paths are absolute, so a worktree created on the host breaks inside the container (and vice versa) because the same files sit at different absolute paths in each environment.
 
-**No host config change needed.** For every workspace whose `.git/config` is a regular file (i.e. the main repo, not a worktree pointer), `claude-docker` overlays a container-only copy of `.git/config` that declares `extensions.relativeWorktrees = true` and `worktree.useRelativePaths = true`. The host's on-disk `.git/config` is never touched. Worktrees created inside the container therefore get relative paths, and those link files are then portable to the host without any opt-in.
+**No host config change needed.** For every workspace whose `.git/config` is a regular file (i.e. the main repo, not a worktree pointer), `opencode-docker` overlays a container-only copy of `.git/config` that declares `extensions.relativeWorktrees = true` and `worktree.useRelativePaths = true`. The host's on-disk `.git/config` is never touched. Worktrees created inside the container therefore get relative paths, and those link files are then portable to the host without any opt-in.
 
 This asymmetry is deliberate: the extension flag — when written into the host's `.git/config` — blinds tools that bundle an older libgit2 (notably `gitstatusd`, which powers the Powerlevel10k git prompt), because they refuse to open a v1 repo declaring an extension they don't know. Keeping the flag container-only sidesteps that.
 
@@ -297,59 +298,59 @@ To convert pre-existing absolute-path worktrees: from inside the container, run 
 git worktree repair
 ```
 
-Use this when you passed a repo and a _sibling_ worktree as separate workspace args (`claude-docker ~/repo ~/repo-feature`). Sibling-flattened mounts collapse the parent directory, so the relative offset between worktree and repo is not preserved by the bind mount and relative paths can't help.
+Use this when you passed a repo and a _sibling_ worktree as separate workspace args (`opencode-docker ~/repo ~/repo-feature`). Sibling-flattened mounts collapse the parent directory, so the relative offset between worktree and repo is not preserved by the bind mount and relative paths can't help.
 
 **Caveats:**
 
 - The overlay only applies to workspaces whose `.git` is a real directory (the main repo). If you mount only a worktree without its main repo, no overlay is created for it. Mount the main repo alongside if you need bidirectional worktree work.
-- Relative paths assume the worktree's location relative to the repo's `.git/` is the same in both environments. Nested layouts (e.g. `<repo>/.claude/worktrees/<name>`) always satisfy this; moving a worktree to a totally different parent dir breaks both relative and absolute setups.
+- Relative paths assume the worktree's location relative to the repo's `.git/` is the same in both environments. Nested layouts (e.g. `<repo>/.config/opencode/worktrees/<name>`) always satisfy this; moving a worktree to a totally different parent dir breaks both relative and absolute setups.
 
 ## Pasting images
 
-`Cmd-V` to paste a clipboard image doesn't work inside the container — Claude Code reads the macOS clipboard via OS APIs that a Linux container can't reach. Workaround: save the image into any workspace you mounted (e.g. `Cmd-Shift-4` to Desktop, then move it into `~/repo`) and reference it from Claude with `@screenshot.png`.
+`Cmd-V` to paste a clipboard image doesn't work inside the container — OpenCode cannot read the macOS clipboard through Linux container APIs. Workaround: save the image into any workspace you mounted (e.g. `Cmd-Shift-4` to Desktop, then move it into `~/repo`) and reference it from OpenCode with `@screenshot.png`.
 
-## Split-pane agent teams
+## Running in tmux
 
-Claude's teammate feature needs tmux. Two modes:
+The wrapper can run the OpenCode TUI in tmux in two modes:
 
 | Flag               | Env var equivalent      | Effect                                                                                                 |
 | ------------------ | ----------------------- | ------------------------------------------------------------------------------------------------------ |
-| _(none — default)_ | _(unset)_               | No tmux. Teammates fall back to Claude's **in-process** mode; cycle with Shift+Down.                   |
-| `--tmux`           | `CLAUDE_DOCKER_TMUX=1`  | Plain tmux. Teammates = tmux splits in one terminal tab; switch with `C-b` + arrow keys. Any terminal. |
-| `--iterm`          | `CLAUDE_DOCKER_TMUX=cc` | `tmux -CC` (iTerm2 control mode). Teammates = **native iTerm2 panes/tabs**. macOS + iTerm2 only.       |
+| _(none — default)_ | _(unset)_                 | Run OpenCode directly in the current terminal.                                  |
+| `--tmux`           | `OPENCODE_DOCKER_TMUX=1`  | Plain tmux in one terminal tab. Any terminal.                                   |
+| `--iterm`          | `OPENCODE_DOCKER_TMUX=cc` | `tmux -CC` (iTerm2 control mode) with native iTerm2 panes/tabs. macOS + iTerm2. |
 
-The env vars are handy for `export` in your shell rc; the flags are handy for one-offs. Both modes need `teammateMode` set in `settings.docker.json` — see [`examples/settings.docker.json`](examples/settings.docker.json). The image already bakes in `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`, so you don't need to add that env var yourself.
+The env vars are handy for `export` in your shell rc; the flags are handy for one-offs.
 
 ### iTerm2 tips for `cc` mode
 
 - Launch from a tab that is **not** already inside a host `tmux -CC` session — nesting degrades the inner server to plain splits.
-- iTerm2 → Settings → General → tmux → Attaching → **"When attaching, restore windows as:"** → `Tabs in the attaching window` keeps the gateway and Claude's content inside one iTerm2 window (default is `Native windows`, which spawns a separate window).
-- iTerm2 → Settings → General → tmux → **"Automatically bury the tmux client session after connecting"** → hides the `** tmux mode started **` gateway tab on attach so only the Claude tab is visible. Retrieve the gateway later via Session → Buried Sessions if needed.
+- iTerm2 → Settings → General → tmux → Attaching → **"When attaching, restore windows as:"** → `Tabs in the attaching window` keeps the gateway and OpenCode's content inside one iTerm2 window (default is `Native windows`, which spawns a separate window).
+- iTerm2 → Settings → General → tmux → **"Automatically bury the tmux client session after connecting"** → hides the `** tmux mode started **` gateway tab on attach so only the OpenCode tab is visible. Retrieve the gateway later via Session → Buried Sessions if needed.
 - The UTF-8 warning from earlier builds is resolved — the image sets `LANG=C.UTF-8` and `run.sh` passes `tmux -u`.
 
 ## Extending the image
 
-When a project needs extra tooling (language runtimes, package managers, project-scoped CLIs) that doesn't belong in the base image, build a child image and reuse this wrapper via the `CLAUDE_DOCKER_IMAGE` env var — no need to fork `run.sh`.
+When a project needs extra tooling (language runtimes, package managers, project-scoped CLIs) that doesn't belong in the base image, build a child image and reuse this wrapper via the `OPENCODE_DOCKER_IMAGE` env var — no need to fork `run.sh`.
 
 In the child repo:
 
 ```dockerfile
-# .claude-docker/Dockerfile
-FROM claude-code:local
+# .opencode-docker/Dockerfile
+FROM opencode:local
 RUN ...   # add your extras here
 ```
 
 ```bash
 #!/usr/bin/env bash
-# claude-docker (project-root entrypoint)
+# opencode-docker (project-root entrypoint)
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
-IMAGE="claude-code-myproject:local"
-docker build -t "$IMAGE" "$here/.claude-docker"
-CLAUDE_DOCKER_IMAGE="$IMAGE" exec claude-docker "$@"
+IMAGE="opencode-myproject:local"
+docker build -t "$IMAGE" "$here/.opencode-docker"
+OPENCODE_DOCKER_IMAGE="$IMAGE" exec opencode-docker "$@"
 ```
 
-The child Dockerfile uses `FROM claude-code:local` (locally-built tag) — assumes the base has been built once on the host. Every wrapper flag (`--aws`, `--gh`, `--ephemeral`, `--ro`, `--iterm`, …) keeps working because the child script just exec's into this one with a different image tag.
+The child Dockerfile uses `FROM opencode:local` (locally-built tag) — assumes the base has been built once on the host. Every wrapper flag (`--aws`, `--gh`, `--ephemeral`, `--ro`, `--iterm`, …) keeps working because the child script just exec's into this one with a different image tag.
 
 Any extra package managers a child image installs (rustup, go, ruby, etc.) _add_ to the runtime code-fetch surface noted under [Threat model](#threat-model) — they don't replace the existing `npx`/`pnpm dlx`/`uvx` primitives.
 
@@ -368,7 +369,7 @@ so Linux CI covers the bulk of it.
 Run a cell locally against a built image:
 
 ```bash
-IMAGE=claude-code:local bash smoke/smoke.sh --uid="$(id -u)" --optins=aws,glab,tfe
+IMAGE=opencode:local bash smoke/smoke.sh --uid="$(id -u)" --optins=aws,glab,tfe
 ```
 
 The GitHub auth proxy sidecar (see [GitHub auth proxy](#github-auth-proxy)) has its own harness, [`tests/gh-proxy-integration.sh`](tests/gh-proxy-integration.sh): it drives `run.sh` end-to-end against a mock GitHub upstream, credential-free and CI-runnable, since `smoke.sh` never invokes `run.sh` and CI has no real GitHub credentials to test against.
@@ -385,12 +386,12 @@ macOS is **virtiofs collapsing `st_dev` across bind mounts**, which changes how
 (see `entrypoint.sh:30-45`). Verify it by hand on a real Mac with Docker Desktop
 before shipping changes to `entrypoint.sh` / `run.sh` / `Dockerfile`:
 
-- Run the smoke cells on macOS: `IMAGE=claude-code:local bash smoke/smoke.sh --uid="$(id -u)" --volstate=warm` and `… --ro=1` and `… --optins=aws,glab,tfe` — the entrypoint must reach the dropped process with **no spurious `entrypoint: WARN`** despite the `:ro` mounts under `/root`.
+- Run the smoke cells on macOS: `IMAGE=opencode:local bash smoke/smoke.sh --uid="$(id -u)" --volstate=warm` and `… --ro=1` and `… --optins=aws,glab,tfe` — the entrypoint must reach the dropped process with **no spurious `entrypoint: WARN`** despite the `:ro` mounts under `/root`.
 - File ownership round-trips to the host user and is editable without `sudo` on a real `~/repo` bind mount.
 - macOS Keychain `gh` flow: `--gh` with no `GH_TOKEN`/`GITHUB_TOKEN` exported falls back to `gh auth token`; in-container `gh` is authenticated.
 - Real AWS SSO (`--aws`) and Terraform Cloud (`--tfe`) reach their endpoints from inside the container via the mounted config.
 - `--iterm` (`tmux -CC`) renders native panes (control mode can't be asserted headlessly).
-- GitHub auth proxy, real credentials: `gh api /user` through the sidecar (`--gh`) returns your real identity while `echo $GH_TOKEN` in the container still shows the placeholder; clone and push a private repo over HTTPS with no credential prompt; `git lfs pull` succeeds through the proxy (batch call on `github.com` gets the injected header, object transfer hits pre-signed hosts unmodified); the statusline tag reads `gh` for a proxied session and `gh-direct` for `--gh-direct`.
+- GitHub auth proxy, real credentials: `gh api /user` through the sidecar (`--gh`) returns your real identity while `echo $GH_TOKEN` in the container still shows the placeholder; clone and push a private repo over HTTPS with no credential prompt; `git lfs pull` succeeds through the proxy (batch call on `github.com` gets the same `Authorization` injection as any other git smart-HTTP request, and the actual object transfer hits pre-signed, non-intercepted hosts. It's covered by the [manual checklist](#manual-fallback-checklist-macos) rather than called out as a limitation.
 - GitHub auth proxy, platform parity _(not macOS-specific — grouped here because it's likewise outside the CI harness)_: under podman, sidecar `network create` / `inspect` (reading the sidecar IP) / `cp` (CA extraction) / `--add-host` behave like their docker equivalents; from Git Bash on Windows, the staged Caddyfile and CA-certificate mounts reach `podman.exe`/`docker.exe` with intact paths (same `hostpath()` translation as the rest of the wrapper).
 
 ## Specs
@@ -401,4 +402,4 @@ Behavioural requirements live in [`openspec/specs/`](openspec/specs/); change hi
 
 Licensed under the Apache License, Version 2.0 — see [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE).
 
-The software is provided on an **"AS IS" basis, without warranties or conditions of any kind**, express or implied, including any warranty as to its **security, fitness, or suitability** for a particular purpose. The container narrows blast radius but is **not** a full sandbox (see [Threat model](#threat-model)) — you are responsible for assessing whether it meets your own security requirements before use. claude-docker installs and runs third-party software under its own license and is not affiliated with or endorsed by Anthropic.
+The software is provided on an **"AS IS" basis, without warranties or conditions of any kind**, express or implied, including any warranty as to its **security, fitness, or suitability** for a particular purpose. The container narrows blast radius but is **not** a full sandbox (see [Threat model](#threat-model)) — you are responsible for assessing whether it meets your own security requirements before use. opencode-docker installs and runs third-party software under its own license and is not affiliated with or endorsed by Anomaly.
