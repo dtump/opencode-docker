@@ -65,13 +65,43 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       "nodejs=${NODE_VERSION}" \
       git \
       git-lfs \
-      tmux \
       ncurses-term \
       jq \
       less \
       openssh-client \
       unzip \
  && git lfs install --system --skip-repo \
+ && rm -rf /var/lib/apt/lists/*
+
+# iTerm2 control mode sends Ctrl-P/Ctrl-X to tmux as hexadecimal key names
+# (for example, `0x10`). tmux 3.5 removed support for that representation,
+# causing those names to be inserted into the pane literally. Build the last
+# compatible release instead of using Ubuntu 26.04's newer tmux package.
+# The release tarball and checksum are pinned so this source build remains
+# reproducible. Runtime dependencies are already installed by the base image.
+ARG TMUX_VERSION=3.4
+ARG TMUX_SHA256=551ab8dea0bf505c0ad6b7bb35ef567cdde0ccb84357df142c254f35a23e19aa
+RUN apt-get update && apt-get install -y --no-install-recommends \
+       bison \
+       build-essential \
+       libevent-dev \
+       libncurses-dev \
+       pkg-config \
+ && curl -fsSL "https://github.com/tmux/tmux/releases/download/${TMUX_VERSION}/tmux-${TMUX_VERSION}.tar.gz" -o /tmp/tmux.tar.gz \
+ && echo "${TMUX_SHA256}  /tmp/tmux.tar.gz" | sha256sum -c - \
+ && tar -xzf /tmp/tmux.tar.gz -C /tmp \
+ && cd "/tmp/tmux-${TMUX_VERSION}" \
+ && ./configure \
+ && make -j"$(nproc)" \
+ && make install \
+ && cd / \
+ && rm -rf "/tmp/tmux-${TMUX_VERSION}" /tmp/tmux.tar.gz \
+ && apt-get purge -y \
+       bison \
+       build-essential \
+       libevent-dev \
+       libncurses-dev \
+       pkg-config \
  && rm -rf /var/lib/apt/lists/*
 
 # GitHub CLI (keyring fetched at build; TODO: commit the keyring to the repo)
