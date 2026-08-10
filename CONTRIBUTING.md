@@ -1,6 +1,6 @@
 # Contributing
 
-Contributions to `claude-docker` are welcome from anyone.
+Contributions to `opencode-docker` are welcome from anyone.
 
 ## Workflow
 
@@ -29,8 +29,8 @@ hadolint --config .hadolint.yaml Dockerfile
 python3 -m unittest discover -s tests -p 'test_*.py' -v
 
 # Build the image and run a smoke cell against it
-docker build -t claude-code:local .
-IMAGE=claude-code:local bash smoke/smoke.sh --uid="$(id -u)" --optins=aws,glab,tfe
+docker build -t opencode:local .
+IMAGE=opencode:local bash smoke/smoke.sh --uid="$(id -u)" --optins=aws,glab,tfe
 ```
 
 See [`README.md`](README.md) for the full architecture, threat model, and the

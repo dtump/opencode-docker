@@ -4,14 +4,14 @@
 #
 # assert-in-container.sh — runs INSIDE the container as the dropped user.
 # Invoked as the container command: entrypoint.sh calls
-#   exec runuser -u claude -- /workspaces/smoke/assert-in-container.sh
+#   exec runuser -u opencode -- /workspaces/smoke/assert-in-container.sh
 # Reads expectations from env vars set by smoke.sh:
 #   EXPECT_UID        expected numeric UID (matches HOST_UID forwarded by smoke.sh)
 #   EXPECT_OPTINS     comma-separated list of granted opt-ins (aws glab tfe), or empty
 #   WORKSPACE         path to the bind-mounted workspace inside the container
 #   EXPECT_RO         1 = workspace is :ro (skip write probe, only test entrypoint startup)
 #   EXPECT_SETTINGS   1 = a settings fixture was mounted at the seed path; assert the
-#                     entrypoint copied it to /root/.claude/settings.json and the copy
+#                     entrypoint copied it to /root/.config/opencode/settings.json and the copy
 #                     is atomically replaceable. 0 = no seed on fresh volumes; assert
 #                     nothing was seeded. keep = no seed this run, but a previous run
 #                     persisted a settings.json in the warm volume; assert it survived.
@@ -106,7 +106,7 @@ check_identity() {
     fail "single-group: expected exactly 1 GID, got $gid_count ('$actual_gids')"
   fi
 
-  # And it must be the EXPECTED primary GID — a regression assigning claude to
+  # And it must be the EXPECTED primary GID — a regression assigning opencode to
   # gid 0 (root) as its single group would pass the count check above. Skip for
   # the root-legacy cell, where the process keeps gid 0 (not HOST_GID).
   if [ "${EXPECT_UID:-0}" != "0" ]; then
@@ -312,28 +312,28 @@ check_credentials() {
 # ---------------------------------------------------------------------------
 
 check_settings() {
-  local settings="/root/.claude/settings.json"
+  local settings="/root/.config/opencode/opencode.json"
   local mode="${EXPECT_SETTINGS:-0}"
 
   if [ "$mode" = "0" ]; then
     # No seed mounted, fresh volumes: the entrypoint must start cleanly
     # without creating one. (The warm no-seed path — a previously persisted
-    # settings.json left as-is — is mode=keep below.)
+    # opencode.json left as-is — is mode=keep below.)
     if [ -e "$settings" ]; then
       fail "settings-absent: $settings exists but no seed was mounted"
     else
-      pass "settings-absent: no settings file without a seed"
+      pass "settings-absent: no opencode.json without a seed"
     fi
     return
   fi
 
   if [ "$mode" = "keep" ]; then
     # Warm volume, no seed this run: the entrypoint's seed block must not
-    # touch the settings.json a previous run persisted. The shared checks
+    # touch the opencode.json a previous run persisted. The shared checks
     # below assert it survived with the previous pass's sentinel and is
     # still atomically replaceable.
-    if [ -e /run/claude-docker/settings.json ]; then
-      fail "settings-keep: seed present at /run/claude-docker/settings.json but this pass expects none"
+    if [ -e /run/opencode-docker/opencode.json ]; then
+      fail "settings-keep: seed present at /run/opencode-docker/opencode.json but this pass expects none"
     else
       pass "settings-keep: no seed mounted this run"
     fi
@@ -348,22 +348,22 @@ check_settings() {
   # Content must carry the sentinel smoke.sh expects for THIS pass. The warm
   # cell reruns with a rewritten fixture, so matching the pass-specific
   # sentinel proves the entrypoint re-seeded (mode=1) or left the persisted
-  # copy alone (mode=keep) — not merely that some settings.json exists.
+  # copy alone (mode=keep) — not merely that some opencode.json exists.
   local sentinel="${EXPECT_SETTINGS_SENTINEL:-}"
   if [ -z "$sentinel" ]; then
     fail "settings-content: EXPECT_SETTINGS_SENTINEL not set (smoke.sh plumbing regression)"
   elif grep -q "$sentinel" "$settings" 2>/dev/null; then
-    pass "settings-content: settings.json carries expected sentinel '$sentinel'"
+    pass "settings-content: opencode.json carries expected sentinel '$sentinel'"
   else
     fail "settings-content: '$sentinel' not found in $settings (content: $(cat "$settings" 2>/dev/null || echo '<unreadable>'))"
   fi
 
-  # The reason settings are copied instead of bind-mounted: Claude Code saves
-  # settings by renaming a tmp file over settings.json, and rename() over a
+  # The reason settings are copied instead of bind-mounted: OpenCode saves
+  # settings by renaming a tmp file over opencode.json, and rename() over a
   # mountpoint fails with EBUSY. Prove the rename path works.
   local tmp="${settings}.tmp.smoke"
   if cp "$settings" "$tmp" 2>/dev/null && mv "$tmp" "$settings" 2>/dev/null; then
-    pass "settings-rename: tmp-file rename over settings.json succeeds"
+    pass "settings-rename: tmp-file rename over opencode.json succeeds"
   else
     rm -f "$tmp"
     fail "settings-rename: cannot atomically replace $settings (mountpoint or ownership regression)"

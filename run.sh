@@ -3,10 +3,10 @@
 # Copyright 2026 Schuberg Philis
 set -euo pipefail
 
-# Override via CLAUDE_DOCKER_IMAGE so child images (FROM claude-code:local) can
+# Override via OPENCODE_DOCKER_IMAGE so child images (FROM opencode:local) can
 # reuse this wrapper's full feature set — credential opt-ins, statusline tag,
 # git-identity forwarding, host-config bind-mounts — without forking it.
-IMAGE="${CLAUDE_DOCKER_IMAGE:-claude-code:local}"
+IMAGE="${OPENCODE_DOCKER_IMAGE:-opencode:local}"
 
 # GitHub auth-proxy sidecar image (Caddy), used only by --gh when a host
 # token is found (see gh-auth-proxy-sidecar). Digest-pinned and deliberately
@@ -14,102 +14,102 @@ IMAGE="${CLAUDE_DOCKER_IMAGE:-claude-code:local}"
 # directive semantics — i.e. this security-critical config — so bumping it
 # is a reviewed change (changelog + config-compatibility check), not a
 # routine automated bump. run.sh cannot read pins/, so the pin lives here.
-PROXY_IMAGE="${CLAUDE_DOCKER_PROXY_IMAGE:-caddy:2.11.4@sha256:844f60b64e4724a5aa8245e019dace0d3f199f7433ce6c57676cb30a920dbad9}"
+PROXY_IMAGE="${OPENCODE_DOCKER_PROXY_IMAGE:-caddy:2.11.4@sha256:844f60b64e4724a5aa8245e019dace0d3f199f7433ce6c57676cb30a920dbad9}"
 
 # Keep this in sync with the flag-parsing case statement below — adding or
 # removing a wrapper flag means updating both the case branch and this heredoc
 # in the same diff.
 print_help() {
   cat <<'EOF'
-Usage: claude-docker [OPTIONS] [WORKSPACE...] [-- CLAUDE_FLAGS...]
+Usage: opencode-docker [OPTIONS] [WORKSPACE...] [-- OPENCODE_FLAGS...]
 
-Hardened Docker wrapper for Claude Code. Wrapper flags and workspace paths
+Hardened Docker wrapper for OpenCode. Wrapper flags and workspace paths
 are parsed before `--`; anything after `--` is forwarded verbatim to the
-`claude` binary inside the container.
+`opencode` binary inside the container.
 
 Workspaces:
-  WORKSPACE...        One or more host directories to mount at
-                      /workspaces/<basename>. Defaults to $PWD when omitted.
-                      First workspace becomes the container's working dir;
-                      every additional workspace is passed to claude as
-                      --add-dir so the agent can read/write across all of them.
+    WORKSPACE...        One or more host directories to mount at
+                        /workspaces/<basename>. Defaults to $PWD when omitted.
+                        First workspace becomes the container's working dir and
+                        the cwd for opencode; every additional workspace is
+                        mounted read-write so the agent can read/write across all.
 
 Wrapper flags:
-  -h, --help          Print this help and exit 0 without starting Docker.
-  --yolo              Pass --dangerously-skip-permissions to claude.
-  --ephemeral         Skip the claude-code-root/claude-code-home named
-                      volumes. No OAuth token, gh login, shell history, or
-                      session history persists across runs.
-  --ro                Mount every workspace read-only (review / audit mode).
-  --aws               Opt in to AWS: mount ~/.aws/config + ~/.aws/sso (:ro)
-                      and forward AWS_PROFILE / AWS_REGION /
-                      AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY /
-                      AWS_SESSION_TOKEN when set.
-  --gh                Opt in to GitHub via a per-session auth-proxy sidecar:
-                      gh/git reach GitHub through a proxy that injects the
-                      real token in transit. The agent container never sees
-                      it — GH_TOKEN / `gh auth token` return a placeholder.
-                      In-container gh login state stays masked while the
-                      sidecar is active. Requires a host GitHub token (env
-                      or `gh auth token`); silently behaves like today's
-                      --gh with no sidecar if none is found. Mutually
-                      exclusive with --gh-direct. Env overrides:
-                      CLAUDE_DOCKER_PROXY_IMAGE (sidecar image),
-                      CLAUDE_DOCKER_GH_POLICY (Caddyfile policy snippet).
-  --gh-direct         Legacy GitHub opt-in: forward GH_TOKEN / GITHUB_TOKEN
-                      straight into the agent container (no sidecar, no
-                      token isolation) and unmask in-container gh login
-                      state. For custom-hostname GitHub (Enterprise Server /
-                      *.ghe.com) or hosts that can't run the sidecar.
-                      Mutually exclusive with --gh.
-  --glab              Opt in to GitLab: mount glab-cli config (:ro) and
-                      forward GITLAB_TOKEN; unmask in-container glab login.
-  --tfe               Opt in to Terraform Cloud (app.terraform.io): mount
-                      ~/.terraform.d/credentials.tfrc.json (:ro) when
-                      present and forward TF_TOKEN_app_terraform_io;
-                      unmask in-container `terraform login` state.
-  --registry          Opt in to private package registries: surface host-
-                      native uv/npm/pnpm/pip config so in-container installs
-                      resolve against a private feed. Mounts ~/.npmrc,
-                      ~/.config/uv/uv.toml, and pip.conf (:ro) when present and
-                      forwards UV_INDEX_* / npm_config_registry / PIP_* env
-                      when set. Runtime only; the image build is unaffected.
-                      ~/.netrc is NOT mounted (too broad — see README); npmrc
-                      and pip.conf are whole-file mounts, so scope them to the
-                      registry. See README "Private package registries".
-  --iterm             Wrap claude in tmux -CC (iTerm2 control mode → native
-                      panes). Equivalent to CLAUDE_DOCKER_TMUX=cc.
-  --tmux              Wrap claude in plain tmux (works in any terminal).
-                      Equivalent to CLAUDE_DOCKER_TMUX=1.
-  --claude-dir=PATH   Use PATH as the host Claude config dir instead of
-                      ~/.claude. Affects agents, commands, skills, CLAUDE.md,
-                      and statusline. Env: CLAUDE_DOCKER_CONFIG_DIR.
+   -h, --help          Print this help and exit 0 without starting Docker.
+   --auto              Pass --auto to opencode (auto-approve permissions that are not explicitly denied).
+   --ephemeral         Skip the opencode-root/opencode-home named
+                       volumes. No OAuth token, gh login, shell history, or
+                       session history persists across runs.
+   --ro                Mount every workspace read-only (review / audit mode).
+   --aws               Opt in to AWS: mount ~/.aws/config + ~/.aws/sso (:ro)
+                       and forward AWS_PROFILE / AWS_REGION /
+                       AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY /
+                       AWS_SESSION_TOKEN when set.
+   --gh                Opt in to GitHub via a per-session auth-proxy sidecar:
+                       gh/git reach GitHub through a proxy that injects the
+                       real token in transit. The agent container never sees
+                       it — GH_TOKEN / `gh auth token` return a placeholder.
+                       In-container gh login state stays masked while the
+                       sidecar is active. Requires a host GitHub token (env
+                       or `gh auth token`); silently behaves like today's
+                       --gh with no sidecar if none is found. Mutually
+                       exclusive with --gh-direct. Env overrides:
+                       OPENCODE_DOCKER_PROXY_IMAGE (sidecar image),
+                       OPENCODE_DOCKER_GH_POLICY (Caddyfile policy snippet).
+   --gh-direct         Legacy GitHub opt-in: forward GH_TOKEN / GITHUB_TOKEN
+                       straight into the agent container (no sidecar, no
+                       token isolation) and unmask in-container gh login
+                       state. For custom-hostname GitHub (Enterprise Server /
+                       *.ghe.com) or hosts that can't run the sidecar.
+                       Mutually exclusive with --gh.
+   --glab              Opt in to GitLab: mount glab-cli config (:ro) and
+                       forward GITLAB_TOKEN; unmask in-container glab login.
+   --tfe               Opt in to Terraform Cloud (app.terraform.io): mount
+                       ~/.terraform.d/credentials.tfrc.json (:ro) when
+                       present and forward TF_TOKEN_app_terraform_io;
+                       unmask in-container `terraform login` state.
+   --registry          Opt in to private package registries: surface host-
+                       native uv/npm/pnpm/pip config so in-container installs
+                       resolve against a private feed. Mounts ~/.npmrc,
+                       ~/.config/uv/uv.toml, and pip.conf (:ro) when present and
+                       forwards UV_INDEX_* / npm_config_registry / PIP_* env
+                       when set. Runtime only; the image build is unaffected.
+                       ~/.netrc is NOT mounted (too broad — see README); npmrc
+                       and pip.conf are whole-file mounts, so scope them to the
+                       registry. See README "Private package registries".
+   --iterm             Wrap opencode in tmux -CC (iTerm2 control mode → native
+                       panes). Equivalent to OPENCODE_DOCKER_TMUX=cc.
+   --tmux              Wrap opencode in plain tmux (works in any terminal).
+                       Equivalent to OPENCODE_DOCKER_TMUX=1.
+   --opencode-dir=PATH   Use PATH as the host OpenCode config dir instead of
+                       ~/.config/opencode. Affects agents, commands, skills, AGENTS.md,
+                       and statusline. Env: OPENCODE_DOCKER_CONFIG_DIR.
 
 Separator:
-  --                  Ends wrapper-flag parsing. Everything after is passed
-                      to `claude`, e.g. `claude-docker ~/repo -- --resume`.
+   --                  Ends wrapper-flag parsing. Everything after is passed
+                       to `opencode`, e.g. `opencode-docker ~/repo -- --resume`.
 
 Environment:
-  CLAUDE_DOCKER_TMUX       1  → plain tmux wrapper (same as --tmux).
-                           cc → tmux -CC iTerm2 control mode (same as
-                           --iterm).
-  CLAUDE_DOCKER_IMAGE      Override the image tag (default: claude-code:local).
-                           Used by child images that extend this one and want to
-                           reuse this wrapper.
-  CLAUDE_DOCKER_CONFIG_DIR Override the host Claude config dir (same as
-                           --claude-dir=PATH).
-  CLAUDE_DOCKER_RUNTIME    Container engine to invoke: docker or podman. Unset
-                           (default) auto-detects, preferring docker then
-                           podman. This is the canonical way to force an engine
-                           and works in scripts, CI, and non-interactive shells.
-  CLAUDE_DOCKER_PROXY_IMAGE Override the digest-pinned Caddy image used by the
-                           --gh auth-proxy sidecar.
-  CLAUDE_DOCKER_GH_POLICY  Path to a Caddyfile snippet imported into the --gh
-                           sidecar's api.github.com site block, to extend the
-                           default request-filtering policy.
+   OPENCODE_DOCKER_TMUX       1  → plain tmux wrapper (same as --tmux).
+                            cc → tmux -CC iTerm2 control mode (same as
+                            --iterm).
+   OPENCODE_DOCKER_IMAGE      Override the image tag (default: opencode:local).
+                            Used by child images that extend this one and want to
+                            reuse this wrapper.
+   OPENCODE_DOCKER_CONFIG_DIR Override the host OpenCode config dir (same as
+                            --opencode-dir=PATH).
+   OPENCODE_DOCKER_RUNTIME    Container engine to invoke: docker or podman. Unset
+                            (default) auto-detects, preferring docker then
+                            podman. This is the canonical way to force an engine
+                            and works in scripts, CI, and non-interactive shells.
+   OPENCODE_DOCKER_PROXY_IMAGE Override the digest-pinned Caddy image used by the
+                            --gh auth-proxy sidecar.
+   OPENCODE_DOCKER_GH_POLICY  Path to a Caddyfile snippet imported into the --gh
+                            sidecar's api.github.com site block, to extend the
+                            default request-filtering policy.
 
 Credentials are off by default; combine opt-ins as needed:
-  claude-docker --aws --gh ~/repo
+   opencode-docker --aws --gh ~/repo
 
 Git identity (user.name, user.email) is forwarded automatically from the
 host's global git config as GIT_AUTHOR_* / GIT_COMMITTER_* env vars so
@@ -117,16 +117,16 @@ in-container `git commit` works without a `-c user.email=...` override.
 Not gated: identity is already public on every commit you've ever made.
 Signing, credential helpers, and hooks are NOT forwarded.
 
-If <config-dir>/settings.docker.json exists it is copied to settings.json in
+If <config-dir>/opencode.docker.json exists it is copied to opencode.json in
 the container at startup — writable in-session, re-seeded from the host file
-on every run; the regular settings.json is never forwarded automatically.
+on every run; the regular opencode.json is never forwarded automatically.
 EOF
 }
 
-# Wrapper flags and workspace paths before `--`; verbatim claude flags after.
-# See `print_help` above or `claude-docker --help` for the flag list.
+# Wrapper flags and workspace paths before `--`; verbatim opencode flags after.
+# See `print_help` above or `opencode-docker --help` for the flag list.
 WORKSPACES=()
-CLAUDE_FLAGS=()
+OPENCODE_FLAGS=()
 EPHEMERAL=0
 RO_WORKSPACES=0
 WITH_AWS=0
@@ -135,16 +135,16 @@ WITH_GH_DIRECT=0
 WITH_GLAB=0
 WITH_TFE=0
 WITH_REGISTRY=0
-CLAUDE_CONFIG_DIR="${CLAUDE_DOCKER_CONFIG_DIR:-$HOME/.claude}"
+OPENCODE_CONFIG_DIR="${OPENCODE_DOCKER_CONFIG_DIR:-$HOME/.config/opencode}"
 saw_sep=0
 for arg in "$@"; do
   if [ "$arg" = "--" ]; then saw_sep=1; continue; fi
   if [ "$saw_sep" = "1" ]; then
-    CLAUDE_FLAGS+=("$arg"); continue
+    OPENCODE_FLAGS+=("$arg"); continue
   fi
   case "$arg" in
     -h|--help)      print_help; exit 0 ;;
-    --yolo)         CLAUDE_FLAGS+=("--dangerously-skip-permissions") ;;
+    --auto)         OPENCODE_FLAGS+=("--auto") ;;
     --ephemeral)    EPHEMERAL=1 ;;
     --ro)           RO_WORKSPACES=1 ;;
     --aws)          WITH_AWS=1 ;;
@@ -153,10 +153,10 @@ for arg in "$@"; do
     --glab)         WITH_GLAB=1 ;;
     --tfe)          WITH_TFE=1 ;;
     --registry)     WITH_REGISTRY=1 ;;
-    --iterm)        CLAUDE_DOCKER_TMUX=cc ;;
-    --tmux)         CLAUDE_DOCKER_TMUX=1 ;;
-    --claude-dir=*) CLAUDE_CONFIG_DIR="${arg#--claude-dir=}" ;;
-    -*)             echo "claude-docker: unknown flag '$arg' (use -- to pass flags to claude)" >&2; exit 1 ;;
+    --iterm)        OPENCODE_DOCKER_TMUX=cc ;;
+    --tmux)         OPENCODE_DOCKER_TMUX=1 ;;
+    --opencode-dir=*) OPENCODE_CONFIG_DIR="${arg#--opencode-dir=}" ;;
+    -*)             echo "opencode-docker: unknown flag '$arg' (use -- to pass flags to opencode)" >&2; exit 1 ;;
     *)              WORKSPACES+=("$arg") ;;
   esac
 done
@@ -167,37 +167,37 @@ done
 # hide the other's risk profile from the user, so reject the combination
 # outright (same exit style as the unknown-flag case above).
 if [ "$WITH_GH" = "1" ] && [ "$WITH_GH_DIRECT" = "1" ]; then
-  echo "claude-docker: --gh and --gh-direct are mutually exclusive — pick the auth-proxy sidecar (--gh) or legacy token forwarding (--gh-direct)" >&2
+  echo "opencode-docker: --gh and --gh-direct are mutually exclusive — pick the auth-proxy sidecar (--gh) or legacy token forwarding (--gh-direct)" >&2
   exit 1
 fi
 
 # Select the container runtime AFTER flag parsing: `-h`/`--help` is handled in
 # the loop above and has already exited 0 by now, so this never blocks help on
 # an engine-less host; and a real run on such a host fails here — before any
-# mktemp/cp staging below. CLAUDE_DOCKER_RUNTIME is the canonical override (works
+# mktemp/cp staging below. OPENCODE_DOCKER_RUNTIME is the canonical override (works
 # in scripts/CI/editors/non-interactive shells); empty means auto-detect.
-RUNTIME="${CLAUDE_DOCKER_RUNTIME:-}"
+RUNTIME="${OPENCODE_DOCKER_RUNTIME:-}"
 # Allowlist the override — it names the binary invoked as `"$RUNTIME" run` at the
 # end of this script, so we must never hand `run …` to an arbitrary on-PATH
 # binary. Empty is allowed and means "auto-detect".
 case "$RUNTIME" in
   ""|docker|podman) ;;
-  *) echo "claude-docker: CLAUDE_DOCKER_RUNTIME must be 'docker' or 'podman', got '$RUNTIME'" >&2; exit 1 ;;
+  *) echo "opencode-docker: OPENCODE_DOCKER_RUNTIME must be 'docker' or 'podman', got '$RUNTIME'" >&2; exit 1 ;;
 esac
 if [ -z "$RUNTIME" ]; then
   if   command -v docker >/dev/null 2>&1; then RUNTIME=docker
   elif command -v podman >/dev/null 2>&1; then RUNTIME=podman
-  else echo "claude-docker: no container runtime found — install docker or podman, or set CLAUDE_DOCKER_RUNTIME" >&2; exit 1
+  else echo "opencode-docker: no container runtime found — install docker or podman, or set OPENCODE_DOCKER_RUNTIME" >&2; exit 1
   fi
 elif ! command -v "$RUNTIME" >/dev/null 2>&1; then
-  echo "claude-docker: requested runtime '$RUNTIME' not found on PATH" >&2; exit 1
+  echo "opencode-docker: requested runtime '$RUNTIME' not found on PATH" >&2; exit 1
 fi
 
 # Best-effort prune of gh-auth-proxy resources stranded by a prior run.sh that
 # died before its EXIT trap could run — the trap installed below (right after
 # this session's own stage dir exists) is the primary teardown path; this is
 # only insurance. Containers: STOPPED states only (exited/created/dead) — a
-# running claude-gh-proxy-* almost certainly belongs to a concurrent live
+# running opencode-gh-proxy-* almost certainly belongs to a concurrent live
 # session, and `rm -f` would sever its GitHub access mid-flight, so running
 # strays (hard-killed run.sh whose sidecar lives on) are deliberately left
 # for manual cleanup; the name prefix makes them easy to spot. Networks:
@@ -206,13 +206,13 @@ fi
 # window can race and lose, which fails that session closed with a clear
 # error — rare, safe, retry succeeds. Every failure here is swallowed: a
 # stale resource that resists removal must never abort this run.
-"$RUNTIME" ps -aq --filter "name=^claude-gh-proxy-" \
+"$RUNTIME" ps -aq --filter "name=^opencode-gh-proxy-" \
     --filter "status=exited" --filter "status=created" --filter "status=dead" \
     2>/dev/null | while IFS= read -r gh_stale_cid; do
   [ -z "$gh_stale_cid" ] && continue
   "$RUNTIME" rm -f "$gh_stale_cid" >/dev/null 2>&1 || true
 done || true
-"$RUNTIME" network ls -q --filter "name=^claude-gh-" 2>/dev/null | while IFS= read -r gh_stale_nid; do
+"$RUNTIME" network ls -q --filter "name=^opencode-gh-" 2>/dev/null | while IFS= read -r gh_stale_nid; do
   [ -z "$gh_stale_nid" ] && continue
   "$RUNTIME" network rm "$gh_stale_nid" >/dev/null 2>&1 || true
 done || true
@@ -317,7 +317,7 @@ api.github.com {
 		method DELETE
 		path_regexp ^/repos/[^/]+/[^/]+/?$
 	}
-	respond @gh_proxy_repo_delete "claude-docker gh-proxy policy: repository deletion is blocked by default. Extend policy via CLAUDE_DOCKER_GH_POLICY, or bypass the proxy entirely with --gh-direct." 403
+	respond @gh_proxy_repo_delete "opencode-docker gh-proxy policy: repository deletion is blocked by default. Extend policy via OPENCODE_DOCKER_GH_POLICY, or bypass the proxy entirely with --gh-direct." 403
 	import /etc/caddy/policy.caddy
 
 	reverse_proxy {$GH_PROXY_UPSTREAM_API} {
@@ -337,11 +337,11 @@ uploads.github.com {
 }
 EOF
 }
-# Expand a leading ~/ in CLAUDE_CONFIG_DIR — needed when set via env var, where
+# Expand a leading ~/ in OPENCODE_CONFIG_DIR — needed when set via env var, where
 # the shell does not perform tilde expansion. Pattern is "~/" not "~" so a
 # user-tilde form like "~alice/path" is not silently misresolved as "$HOME/alice/path".
 # shellcheck disable=SC2088  # literal "~/" is the intended case pattern, not a tilde-expansion target
-case "$CLAUDE_CONFIG_DIR" in "~/"*) CLAUDE_CONFIG_DIR="$HOME/${CLAUDE_CONFIG_DIR#\~/}" ;; esac
+case "$OPENCODE_CONFIG_DIR" in "~/"*) OPENCODE_CONFIG_DIR="$HOME/${OPENCODE_CONFIG_DIR#\~/}" ;; esac
 
 MOUNT_ARGS=()
 ENV_ARGS=(-e TERM)
@@ -359,14 +359,14 @@ for ws in "${WORKSPACES[@]}"; do
   name=$(basename "$abs")
   # Safe: -v/-w/--add-dir all receive the path as a single quoted argv element; only : and empty break docker -v parsing.
   case "$name" in
-    "")  echo "claude-docker: workspace basename is empty; cannot mount at /workspaces/" >&2; exit 1 ;;
-    *:*) echo "claude-docker: workspace basename '$name' cannot contain ':' (breaks docker -v parsing)" >&2; exit 1 ;;
+    "")  echo "opencode-docker: workspace basename is empty; cannot mount at /workspaces/" >&2; exit 1 ;;
+    *:*) echo "opencode-docker: workspace basename '$name' cannot contain ':' (breaks docker -v parsing)" >&2; exit 1 ;;
   esac
   n=${#SEEN_NAMES[@]}
   i=0
   while [ "$i" -lt "$n" ]; do
     if [ "${SEEN_NAMES[$i]}" = "$name" ]; then
-      echo "claude-docker: workspace basename collision — '$abs' and '${SEEN_PATHS[$i]}' both map to /workspaces/$name" >&2
+      echo "opencode-docker: workspace basename collision — '$abs' and '${SEEN_PATHS[$i]}' both map to /workspaces/$name" >&2
       exit 1
     fi
     i=$((i + 1))
@@ -378,7 +378,7 @@ for ws in "${WORKSPACES[@]}"; do
 done
 CWD="${CONTAINER_PATHS[0]}"
 
-# File-based host creds. gh uses macOS Keychain → log in inside the container once; persists via claude-code-root.
+# File-based host creds. gh uses macOS Keychain → log in inside the container once; persists via opencode-root.
 # glab on macOS lives under ~/Library/Application Support/glab-cli (not XDG); fall back to ~/.config/glab-cli on Linux.
 if [ "$WITH_GLAB" = "1" ]; then
   glab_src=""
@@ -508,10 +508,10 @@ if command -v git >/dev/null 2>&1; then
   fi
 fi
 
-# Surface active opt-ins in-container via CLAUDE_DOCKER_FLAGS so the statusline
+# Surface active opt-ins in-container via OPENCODE_DOCKER_FLAGS so the statusline
 # wrapper (below) can tag the session with what was actually granted. Order
 # mirrors the README table so the tag reads predictably.
-# --yolo is omitted intentionally: Claude Code already shows the permission
+# --yolo is omitted intentionally: OpenCode already shows the permission
 # mode in its UI, so duplicating it here would just be noise.
 DOCKER_FLAGS=()
 [ "$WITH_GH" = "1" ]       && DOCKER_FLAGS+=("gh")
@@ -524,10 +524,10 @@ DOCKER_FLAGS=()
 [ "$RO_WORKSPACES" = "1" ] && DOCKER_FLAGS+=("ro")
 if [ "${#DOCKER_FLAGS[@]}" -gt 0 ]; then
   old_ifs=$IFS; IFS=','; DOCKER_FLAGS_CSV="${DOCKER_FLAGS[*]}"; IFS=$old_ifs
-  ENV_ARGS+=("-e" "CLAUDE_DOCKER_FLAGS=$DOCKER_FLAGS_CSV")
+  ENV_ARGS+=("-e" "OPENCODE_DOCKER_FLAGS=$DOCKER_FLAGS_CSV")
 fi
 
-# Host Claude config parity: mount host config items read-only into the container.
+# Host OpenCode config parity: mount host config items read-only into the container.
 # Directories: resolve the top-level symlink so Docker gets a real path under
 # /Users (which is the only host path Colima shares into its VM by default;
 # Docker Desktop also shares it). The statusline wrapper is generated content
@@ -536,7 +536,7 @@ fi
 # so any bind-mount from those paths silently yields an empty mountpoint in
 # the container. $TMPDIR on macOS is /var/folders/... (not shared by either
 # runtime); /tmp is shared by Docker Desktop only.
-stage_root="$HOME/.cache/claude-docker"
+stage_root="$HOME/.cache/opencode-docker"
 mkdir -p "$stage_root"
 stage=$(mktemp -d "$stage_root/host.XXXXXX")
 
@@ -547,8 +547,8 @@ stage=$(mktemp -d "$stage_root/host.XXXXXX")
 # be extended before there is anything for it to clean up. Actual sidecar
 # creation (gated on --gh finding a host token) happens further down.
 gh_sid="${stage##*.}"
-GH_PROXY_NETWORK="claude-gh-$gh_sid"
-GH_PROXY_SIDECAR="claude-gh-proxy-$gh_sid"
+GH_PROXY_NETWORK="opencode-gh-$gh_sid"
+GH_PROXY_SIDECAR="opencode-gh-proxy-$gh_sid"
 
 # `case` instead of `[[ ]]` for bash 3.2 friendliness inside the trap string.
 # $HOME/$RUNTIME/$GH_PROXY_* are expanded at trap execution time, * is a glob
@@ -557,7 +557,7 @@ GH_PROXY_SIDECAR="claude-gh-proxy-$gh_sid"
 # window where a failure between creating a resource and re-trapping would
 # leak it, so this must be in place before the network/sidecar are created.
 trap '
-case "$stage" in "$HOME/.cache/claude-docker/host."*) rm -rf "$stage" ;; esac
+case "$stage" in "$HOME/.cache/opencode-docker/host."*) rm -rf "$stage" ;; esac
 "$RUNTIME" rm -f "$GH_PROXY_SIDECAR" >/dev/null 2>&1 || true
 "$RUNTIME" network rm "$GH_PROXY_NETWORK" >/dev/null 2>&1 || true
 ' EXIT
@@ -572,25 +572,25 @@ if [ "$WITH_GH" = "1" ] && [ -n "$GH_HOST_TOKEN" ]; then
   # Everything that varies between runs is injected into the sidecar's
   # environment, not the config text: the upstreams here and the token
   # further down. Real GitHub by default; the test-only
-  # CLAUDE_DOCKER_GH_UPSTREAM hook repoints all three at a single mock
+  # OPENCODE_DOCKER_GH_UPSTREAM hook repoints all three at a single mock
   # upstream (undocumented — for the tests/ integration harness only). Caddy
   # substitutes these {$VAR} references at config-load time.
   GH_PROXY_UPSTREAM_GITHUB="https://github.com"
   GH_PROXY_UPSTREAM_API="https://api.github.com"
   GH_PROXY_UPSTREAM_UPLOADS="https://uploads.github.com"
-  if [ -n "${CLAUDE_DOCKER_GH_UPSTREAM:-}" ]; then
-    GH_PROXY_UPSTREAM_GITHUB="$CLAUDE_DOCKER_GH_UPSTREAM"
-    GH_PROXY_UPSTREAM_API="$CLAUDE_DOCKER_GH_UPSTREAM"
-    GH_PROXY_UPSTREAM_UPLOADS="$CLAUDE_DOCKER_GH_UPSTREAM"
+  if [ -n "${OPENCODE_DOCKER_GH_UPSTREAM:-}" ]; then
+    GH_PROXY_UPSTREAM_GITHUB="$OPENCODE_DOCKER_GH_UPSTREAM"
+    GH_PROXY_UPSTREAM_API="$OPENCODE_DOCKER_GH_UPSTREAM"
+    GH_PROXY_UPSTREAM_UPLOADS="$OPENCODE_DOCKER_GH_UPSTREAM"
   fi
   export GH_PROXY_UPSTREAM_GITHUB GH_PROXY_UPSTREAM_API GH_PROXY_UPSTREAM_UPLOADS
 
   # The policy file is ALWAYS staged and mounted — the user's snippet when
-  # CLAUDE_DOCKER_GH_POLICY is set, an empty file otherwise — so the Caddyfile
+  # OPENCODE_DOCKER_GH_POLICY is set, an empty file otherwise — so the Caddyfile
   # can `import` it unconditionally (importing an empty file is a no-op). That
   # keeps the config free of a conditional import line, i.e. fully static.
-  if [ -n "${CLAUDE_DOCKER_GH_POLICY:-}" ] && [ -f "$CLAUDE_DOCKER_GH_POLICY" ]; then
-    cp "$CLAUDE_DOCKER_GH_POLICY" "$stage/gh-proxy/policy.caddy"
+  if [ -n "${OPENCODE_DOCKER_GH_POLICY:-}" ] && [ -f "$OPENCODE_DOCKER_GH_POLICY" ]; then
+    cp "$OPENCODE_DOCKER_GH_POLICY" "$stage/gh-proxy/policy.caddy"
   else
     : > "$stage/gh-proxy/policy.caddy"
   fi
@@ -600,10 +600,10 @@ if [ "$WITH_GH" = "1" ] && [ -n "$GH_HOST_TOKEN" ]; then
   # policy import, not by the shell.
   gen_gh_proxy_caddyfile >"$stage/gh-proxy/Caddyfile"
 
-  if ! "$RUNTIME" network create "$GH_PROXY_NETWORK" >/dev/null; then
-    echo "claude-docker: failed to create network '$GH_PROXY_NETWORK' for the gh-auth-proxy sidecar — aborting (the real GitHub token was never forwarded)" >&2
+   if ! "$RUNTIME" network create "$GH_PROXY_NETWORK" >/dev/null; then
+    echo "opencode-docker: failed to create network '$GH_PROXY_NETWORK' for the gh-auth-proxy sidecar — aborting (the real GitHub token was never forwarded)" >&2
     exit 1
-  fi
+   fi
 
   # Complete header values, scheme prefix included, computed host-side and
   # passed to the sidecar's environment only — never written to the staged
@@ -629,25 +629,25 @@ if [ "$WITH_GH" = "1" ] && [ -n "$GH_HOST_TOKEN" ]; then
   # dropped to the one Caddy needs (binding <1024 as non-root).
   # Deliberately NOT --rm: `run -d` reports success as soon as the container
   # *starts*, so a Caddy that exits immediately (most often an invalid
-  # CLAUDE_DOCKER_GH_POLICY snippet) needs its logs to diagnose — with --rm the
+  # OPENCODE_DOCKER_GH_POLICY snippet) needs its logs to diagnose — with --rm the
   # container, and its logs, would already be gone by the time we notice. The
   # EXIT trap removes it on session end; a stopped stray from a hard-killed
   # run.sh is swept by the stopped-only prune at the next start.
-  if ! "$RUNTIME" run -d \
-      --name "$GH_PROXY_SIDECAR" \
-      --network "$GH_PROXY_NETWORK" \
-      --cap-drop ALL --cap-add NET_BIND_SERVICE \
-      --security-opt no-new-privileges \
-      -e GH_PROXY_BEARER \
-      -e GH_PROXY_BASIC \
-      -e GH_PROXY_UPSTREAM_GITHUB \
-      -e GH_PROXY_UPSTREAM_API \
-      -e GH_PROXY_UPSTREAM_UPLOADS \
-      "${GH_SIDECAR_MOUNTS[@]}" \
-      "$PROXY_IMAGE" >/dev/null; then
-    echo "claude-docker: failed to start the gh-auth-proxy sidecar ($PROXY_IMAGE) — aborting; the real GitHub token was never forwarded into any container. Try '$RUNTIME pull $PROXY_IMAGE', or use --gh-direct to bypass the proxy." >&2
+   if ! "$RUNTIME" run -d \
+       --name "$GH_PROXY_SIDECAR" \
+       --network "$GH_PROXY_NETWORK" \
+       --cap-drop ALL --cap-add NET_BIND_SERVICE \
+       --security-opt no-new-privileges \
+       -e GH_PROXY_BEARER \
+       -e GH_PROXY_BASIC \
+       -e GH_PROXY_UPSTREAM_GITHUB \
+       -e GH_PROXY_UPSTREAM_API \
+       -e GH_PROXY_UPSTREAM_UPLOADS \
+       "${GH_SIDECAR_MOUNTS[@]}" \
+       "$PROXY_IMAGE" >/dev/null; then
+    echo "opencode-docker: failed to start the gh-auth-proxy sidecar ($PROXY_IMAGE) — aborting; the real GitHub token was never forwarded into any container. Try '$RUNTIME pull $PROXY_IMAGE', or use --gh-direct to bypass the proxy." >&2
     exit 1
-  fi
+   fi
 
   # Caddy materializes its local CA root at config load, not lazily on first
   # TLS handshake (verified against the pinned image per design.md) — this
@@ -670,55 +670,55 @@ if [ "$WITH_GH" = "1" ] && [ -n "$GH_HOST_TOKEN" ]; then
     sleep 1
     i=$((i + 1))
   done
-  if [ "$gh_proxy_exited" = "1" ]; then
-    echo "claude-docker: the gh-auth-proxy sidecar exited during startup — aborting; the real GitHub token was never forwarded into any container. Caddy's own error follows (an invalid CLAUDE_DOCKER_GH_POLICY snippet is the usual cause):" >&2
+   if [ "$gh_proxy_exited" = "1" ]; then
+    echo "opencode-docker: the gh-auth-proxy sidecar exited during startup — aborting; the real GitHub token was never forwarded into any container. Caddy's own error follows (an invalid OPENCODE_DOCKER_GH_POLICY snippet is the usual cause):" >&2
     "$RUNTIME" logs "$GH_PROXY_SIDECAR" 2>&1 | tail -15 | sed 's/^/  | /' >&2
     exit 1
-  fi
-  if [ "$gh_ca_ready" != "1" ]; then
-    echo "claude-docker: gh-auth-proxy sidecar did not produce a CA certificate within 15s — aborting; the real GitHub token was never forwarded into any container. The sidecar is still running; inspect it with '$RUNTIME logs $GH_PROXY_SIDECAR' (it is removed when this command exits)." >&2
+   fi
+   if [ "$gh_ca_ready" != "1" ]; then
+    echo "opencode-docker: gh-auth-proxy sidecar did not produce a CA certificate within 15s — aborting; the real GitHub token was never forwarded into any container. The sidecar is still running; inspect it with '$RUNTIME logs $GH_PROXY_SIDECAR' (it is removed when this command exits)." >&2
     exit 1
-  fi
+   fi
 
-  gh_proxy_ip=$("$RUNTIME" inspect --format "{{(index .NetworkSettings.Networks \"$GH_PROXY_NETWORK\").IPAddress}}" "$GH_PROXY_SIDECAR" 2>/dev/null)
-  if [ -z "$gh_proxy_ip" ]; then
-    echo "claude-docker: could not determine the gh-auth-proxy sidecar's network address — aborting; the real GitHub token was never forwarded into any container." >&2
+   gh_proxy_ip=$("$RUNTIME" inspect --format "{{(index .NetworkSettings.Networks \"$GH_PROXY_NETWORK\").IPAddress}}" "$GH_PROXY_SIDECAR" 2>/dev/null)
+   if [ -z "$gh_proxy_ip" ]; then
+    echo "opencode-docker: could not determine the gh-auth-proxy sidecar's network address — aborting; the real GitHub token was never forwarded into any container." >&2
     exit 1
-  fi
+   fi
 
-  # Wire the agent container: redirect only the three GitHub hostnames that
-  # need the Authorization header to the sidecar (--add-host rewrites
-  # resolution inside the agent container only — see design.md on why this
-  # beats a network alias), trust the sidecar's CA, and hand `gh` a
-  # placeholder that satisfies its "am I authenticated" check without being
-  # a usable credential.
-  MOUNT_ARGS+=(
-    "--network" "$GH_PROXY_NETWORK"
-    "--add-host" "github.com:$gh_proxy_ip"
-    "--add-host" "api.github.com:$gh_proxy_ip"
-    "--add-host" "uploads.github.com:$gh_proxy_ip"
-    "-v" "$(hostpath "$stage/gh-proxy/root.crt"):/usr/local/share/ca-certificates/claude-docker-gh-proxy.crt:ro"
-  )
-  # UV_SYSTEM_CERTS makes uv read the OS trust store instead of the webpki roots
-  # bundled into its rustls client — without it uv is the one shipped tool that
-  # trusts neither the system bundle nor NODE_EXTRA_CA_CERTS, so every
-  # github.com fetch fails "invalid peer certificate: UnknownIssuer" while git,
-  # gh and curl work (issue #22). Full verification is preserved: uv verifies
-  # against the same entrypoint-installed session root. Set only alongside the
-  # sidecar, mirroring NODE_EXTRA_CA_CERTS — with no interception there is
-  # nothing extra to trust. (Env name over the deprecated UV_NATIVE_TLS; both
-  # are honoured by the pinned uv, only the new one is warning-free.)
-  ENV_ARGS+=(
-    "-e" "GH_TOKEN=claude-docker-proxy"
-    "-e" "NODE_EXTRA_CA_CERTS=/usr/local/share/ca-certificates/claude-docker-gh-proxy.crt"
-    "-e" "UV_SYSTEM_CERTS=1"
-  )
-  GH_SIDECAR_ACTIVE=1
-  echo "claude-docker: gh-auth-proxy sidecar '$GH_PROXY_SIDECAR' is active — view the audit log with: $RUNTIME logs $GH_PROXY_SIDECAR" >&2
+   # Wire the agent container: redirect only the three GitHub hostnames that
+   # need the Authorization header to the sidecar (--add-host rewrites
+   # resolution inside the agent container only — see design.md on why this
+   # beats a network alias), trust the sidecar's CA, and hand `gh` a
+   # placeholder that satisfies its "am I authenticated" check without being
+   # a usable credential.
+   MOUNT_ARGS+=(
+     "--network" "$GH_PROXY_NETWORK"
+     "--add-host" "github.com:$gh_proxy_ip"
+     "--add-host" "api.github.com:$gh_proxy_ip"
+     "--add-host" "uploads.github.com:$gh_proxy_ip"
+     "-v" "$(hostpath "$stage/gh-proxy/root.crt"):/usr/local/share/ca-certificates/opencode-docker-gh-proxy.crt:ro"
+   )
+   # UV_SYSTEM_CERTS makes uv read the OS trust store instead of the webpki roots
+   # bundled into its rustls client — without it uv is the one shipped tool that
+   # trusts neither the system bundle nor NODE_EXTRA_CA_CERTS, so every
+   # github.com fetch fails "invalid peer certificate: UnknownIssuer" while git,
+   # gh and curl work (issue #22). Full verification is preserved: uv verifies
+   # against the same entrypoint-installed session root. Set only alongside the
+   # sidecar, mirroring NODE_EXTRA_CA_CERTS — with no interception there is
+   # nothing extra to trust. (Env name over the deprecated UV_NATIVE_TLS; both
+   # are honoured by the pinned uv, only the new one is warning-free.)
+   ENV_ARGS+=(
+     "-e" "GH_TOKEN=opencode-docker-proxy"
+     "-e" "NODE_EXTRA_CA_CERTS=/usr/local/share/ca-certificates/opencode-docker-gh-proxy.crt"
+     "-e" "UV_SYSTEM_CERTS=1"
+   )
+   GH_SIDECAR_ACTIVE=1
+   echo "opencode-docker: gh-auth-proxy sidecar '$GH_PROXY_SIDECAR' is active — view the audit log with: $RUNTIME logs $GH_PROXY_SIDECAR" >&2
 fi
 
 for item in agents commands skills; do
-  src="$CLAUDE_CONFIG_DIR/$item"
+  src="$OPENCODE_CONFIG_DIR/$item"
   # Resolve top-level symlink so cp -RL gets a real directory path, not a link.
   # Hop counter guards against pathological symlink cycles (a -> b -> a).
   hops=0
@@ -731,44 +731,44 @@ for item in agents commands skills; do
     # cp -RL dereferences all symlinks within the tree so internal symlinks
     # (e.g. skills/foo -> ~/git/repo/skills/foo) resolve inside the container.
     cp -RL "$src" "$stage/$item"
-    MOUNT_ARGS+=("-v" "$(hostpath "$stage/$item"):/root/.claude/$item:ro")
+    MOUNT_ARGS+=("-v" "$(hostpath "$stage/$item"):/root/.config/opencode/$item:ro")
   fi
 done
-if [ -f "$CLAUDE_CONFIG_DIR/CLAUDE.md" ]; then
-  MOUNT_ARGS+=("-v" "$(hostpath "$CLAUDE_CONFIG_DIR/CLAUDE.md"):/root/.claude/CLAUDE.md:ro")
+if [ -f "$OPENCODE_CONFIG_DIR/AGENTS.md" ]; then
+  MOUNT_ARGS+=("-v" "$(hostpath "$OPENCODE_CONFIG_DIR/AGENTS.md"):/root/.config/opencode/AGENTS.md:ro")
 fi
 
 # Statusline: mount the host script as-is, plus a thin wrapper at the canonical
-# path that prefixes a `docker:<flags>` tag when CLAUDE_DOCKER_FLAGS is set.
-# The wrapper is a no-op passthrough when unset so non-claude-docker runs of
+# path that prefixes a `docker:<flags>` tag when OPENCODE_DOCKER_FLAGS is set.
+# The wrapper is a no-op passthrough when unset so non-opencode-docker runs of
 # the same file would behave identically.
-if [ -f "$CLAUDE_CONFIG_DIR/statusline-command.sh" ]; then
+if [ -f "$OPENCODE_CONFIG_DIR/statusline-command.sh" ]; then
   cat >"$stage/statusline-command.sh" <<'WRAP'
 #!/bin/sh
-# claude-docker wrapper — prepends active opt-in flag tag to host statusline.
+# opencode-docker wrapper — prepends active opt-in flag tag to host statusline.
 input=$(cat)
-body=$(printf '%s' "$input" | sh /root/.claude/statusline-command.original.sh)
-if [ -n "${CLAUDE_DOCKER_FLAGS:-}" ]; then
-  printf '\033[33mdocker:%s\033[0m %s' "$CLAUDE_DOCKER_FLAGS" "$body"
+body=$(printf '%s' "$input" | sh /root/.config/opencode/statusline-command.original.sh)
+if [ -n "${OPENCODE_DOCKER_FLAGS:-}" ]; then
+  printf '\033[33mdocker:%s\033[0m %s' "$OPENCODE_DOCKER_FLAGS" "$body"
 else
   printf '%s' "$body"
 fi
 WRAP
   chmod +x "$stage/statusline-command.sh"
   MOUNT_ARGS+=(
-    "-v" "$(hostpath "$CLAUDE_CONFIG_DIR/statusline-command.sh"):/root/.claude/statusline-command.original.sh:ro"
-    "-v" "$(hostpath "$stage/statusline-command.sh"):/root/.claude/statusline-command.sh:ro"
+    "-v" "$(hostpath "$OPENCODE_CONFIG_DIR/statusline-command.sh"):/root/.config/opencode/statusline-command.original.sh:ro"
+    "-v" "$(hostpath "$stage/statusline-command.sh"):/root/.config/opencode/statusline-command.sh:ro"
   )
 fi
 # Settings are forwarded via a seed path + entrypoint copy, NOT bind-mounted
-# at /root/.claude/settings.json directly: Claude Code persists settings by
-# renaming a tmp file over settings.json, and rename() over a mountpoint fails
+# at /root/.config/opencode/opencode.json directly: OpenCode persists settings by
+# renaming a tmp file over opencode.json, and rename() over a mountpoint fails
 # with EBUSY (regardless of :ro), so a direct mount breaks every in-session
-# settings change (effort, model, theme). The entrypoint copies the seed onto
-# the container filesystem so those writes work; changes last for the run and
-# are overwritten from the host file on the next start — never written back.
-[ -f "$CLAUDE_CONFIG_DIR/settings.docker.json" ] \
-  && MOUNT_ARGS+=("-v" "$(hostpath "$CLAUDE_CONFIG_DIR/settings.docker.json"):/run/claude-docker/settings.json:ro")
+# settings change. The entrypoint copies the seed onto the container filesystem
+# so those writes work; changes last for the run and are overwritten from the
+# host file on the next start — never written back.
+[ -f "$OPENCODE_CONFIG_DIR/opencode.docker.json" ] \
+  && MOUNT_ARGS+=("-v" "$(hostpath "$OPENCODE_CONFIG_DIR/opencode.docker.json"):/run/opencode-docker/opencode.json:ro")
 
 # Container-only .git/config overlay: enable relative-path worktrees inside the
 # container without touching the host's on-disk repo config. The host file
@@ -807,36 +807,31 @@ EOF
   i=$((i + 1))
 done
 
-CMD=(claude)
-# Grant claude read/write access to every mounted workspace, not just cwd.
-# Index 0 is already cwd, so skip it. Repeat --add-dir is allowed; we don't
-# dedupe against any user-supplied --add-dir after `--`.
-n=${#CONTAINER_PATHS[@]}
-i=1
-while [ "$i" -lt "$n" ]; do
-  CMD+=("--add-dir" "${CONTAINER_PATHS[$i]}")
-  i=$((i + 1))
-done
-[ "${#CLAUDE_FLAGS[@]}" -gt 0 ] && CMD+=("${CLAUDE_FLAGS[@]}")
+CMD=(opencode)
+# OpenCode accepts a single optional project path (the cwd). Multi-workspace
+# support is provided by mounting all workspaces at /workspaces/<name> and
+# running from the first one. Users can cd between workspaces inside the
+# container. Index 0 is already cwd, so no --add-dir needed.
+[ "${#OPENCODE_FLAGS[@]}" -gt 0 ] && CMD+=("${OPENCODE_FLAGS[@]}")
 # Test-only hook for the run.sh-driven integration harness (tests/): replace
 # the agent container's command entirely so the harness can run assertions
-# in-container instead of claude. Undocumented — not a supported user-facing
+# in-container instead of opencode. Undocumented — not a supported user-facing
 # override.
-if [ -n "${CLAUDE_DOCKER_TEST_ENTRY:-}" ]; then
-  CMD=(sh -c "$CLAUDE_DOCKER_TEST_ENTRY")
+if [ -n "${OPENCODE_DOCKER_TEST_ENTRY:-}" ]; then
+  CMD=(sh -c "$OPENCODE_DOCKER_TEST_ENTRY")
 fi
-# CLAUDE_DOCKER_TMUX=1   → plain tmux (works in any terminal)
-# CLAUDE_DOCKER_TMUX=cc  → tmux -CC, iTerm2 control mode (native panes on macOS).
+# OPENCODE_DOCKER_TMUX=1   → plain tmux (works in any terminal)
+# OPENCODE_DOCKER_TMUX=cc  → tmux -CC, iTerm2 control mode (native panes on macOS).
 #                          Host must NOT already be inside tmux -CC — nesting
 #                          collapses the inner server to plain splits.
-# Wrap claude so a fast non-zero exit (e.g. `claude -w` from a non-git dir)
+# Wrap opencode so a fast non-zero exit (e.g. `opencode -w` from a non-git dir)
 # stays readable: tmux tears the pane down the moment its command exits AND
 # always returns 0 itself, so without this hold the user sees neither the
 # error message nor a non-zero status — the wrapper just appears to no-op.
 HOLD_ON_ERR='"$@"; rc=$?; if [ $rc -ne 0 ]; then printf "\n[%s exited %d — press Enter to close] " "$1" "$rc" >&2; read -r _; fi; exit $rc'
-case "${CLAUDE_DOCKER_TMUX:-0}" in
-  cc|CC) CMD=(tmux -u -CC new-session -A -s claude sh -c "$HOLD_ON_ERR" _ "${CMD[@]}") ;;
-  1)     CMD=(tmux -u     new-session -A -s claude sh -c "$HOLD_ON_ERR" _ "${CMD[@]}") ;;
+case "${OPENCODE_DOCKER_TMUX:-0}" in
+  cc|CC) CMD=(tmux -u -CC new-session -A -s opencode sh -c "$HOLD_ON_ERR" _ "${CMD[@]}") ;;
+  1)     CMD=(tmux -u     new-session -A -s opencode sh -c "$HOLD_ON_ERR" _ "${CMD[@]}") ;;
 esac
 
 # Persistent named volumes carry OAuth tokens, gh login, conversation history.
@@ -844,7 +839,7 @@ esac
 # so the docker run line has no conditionally-empty array (bash 3.2 set -u).
 if [ "$EPHEMERAL" = "0" ]; then
   # Mask persisted in-container auth state when the opt-in flag is off, so a
-  # prior `gh`/`glab`/`terraform` auth login stored under claude-code-root
+  # prior `gh`/`glab`/`terraform` auth login stored under opencode-root
   # doesn't leak into a session the user didn't ask to grant those creds to.
   # gh is the exception with three states, not two: masked whenever --gh is
   # absent OR the sidecar is active (the placeholder env token makes
@@ -858,7 +853,7 @@ if [ "$EPHEMERAL" = "0" ]; then
   [ "$gh_config_unmask" = "0" ] && MOUNT_ARGS+=("--tmpfs" "/root/.config/gh")
   [ "$WITH_GLAB" = "0" ] && MOUNT_ARGS+=("--tmpfs" "/root/.config/glab-cli")
   [ "$WITH_TFE" = "0" ]  && MOUNT_ARGS+=("--tmpfs" "/root/.terraform.d")
-  MOUNT_ARGS=(-v claude-code-root:/root -v claude-code-home:/root/.claude "${MOUNT_ARGS[@]}")
+  MOUNT_ARGS=(-v opencode-root:/root -v opencode-home:/root/.config/opencode "${MOUNT_ARGS[@]}")
 fi
 
 # CHOWN/SETUID/SETGID are needed by entrypoint.sh to chown /root and then
@@ -867,8 +862,8 @@ fi
 # only need search/read, not write override. All four caps are
 # cleared from the effective/permitted/ambient sets when runuser
 # transitions UID 0 → host UID; the bounding set keeps them but is inert
-# under no-new-privileges, so claude itself runs with no usable caps.
-# --init wraps the process tree under tini so claude's bash/MCP children
+# under no-new-privileges, so opencode itself runs with no usable caps.
+# --init wraps the process tree under tini so opencode bash/MCP children
 # get reaped — runuser would otherwise be PID 1 and wouldn't reap zombies.
 "$RUNTIME" run --rm -it --init \
   --security-opt no-new-privileges \

@@ -10,7 +10,7 @@
 # standalone docker invocation, so it has to be exercised through the real
 # entrypoint. A mock GitHub upstream (the same pinned Caddy image, running as a
 # plain-HTTP echo server) stands in for github.com/api.github.com/
-# uploads.github.com via run.sh's test-only CLAUDE_DOCKER_GH_UPSTREAM hook, so
+# uploads.github.com via run.sh's test-only OPENCODE_DOCKER_GH_UPSTREAM hook, so
 # no GitHub credentials are ever needed.
 #
 # Uses a FAKE token throughout (ghp_fake...); never reads or forwards a real
@@ -22,16 +22,16 @@
 #        trust), gh's Go resolver honours --add-host, git's smart-HTTP request
 #        reaches the mock with the injected Basic header.
 #   4.3  default policy blocks DELETE /repos/{o}/{r} (403 + policy body, never
-#        reaches the mock); benign requests pass; a CLAUDE_DOCKER_GH_POLICY
+#        reaches the mock); benign requests pass; a OPENCODE_DOCKER_GH_POLICY
 #        extension is enforced.
 #   4.4  sidecar audit log has structured method/path/status entries, never
 #        contains the token, and the name run.sh prints matches the running
 #        container.
 #   4.5  two concurrent sessions get distinct networks/sidecars/CA roots, both
-#        work, and teardown leaves no claude-gh-* resources.
+#        work, and teardown leaves no opencode-gh-* resources.
 #   4.6  --gh-direct forwards the real token with no sidecar; --gh with no
 #        discoverable host token starts no sidecar and stays silent; --gh
-#        --gh-direct together is rejected; a bad CLAUDE_DOCKER_PROXY_IMAGE
+#        --gh-direct together is rejected; a bad OPENCODE_DOCKER_PROXY_IMAGE
 #        fails closed (no agent container, no leftovers).
 #   #22  release-asset HEAD probes leave the sidecar with no Authorization
 #        header while the GET on the same path keeps the injected Basic one,
@@ -45,7 +45,7 @@
 #     succeeds") assumes a git-aware mock; this harness deliberately trades
 #     that for a much simpler, more robust mock and verifies transport+auth
 #     via logs instead. Documented, not silently downgraded.
-#   - The CLAUDE_DOCKER_GH_POLICY snippet syntax is inferred (a `@name { }`
+#   - The OPENCODE_DOCKER_GH_POLICY snippet syntax is inferred (a `@name { }`
 #     matcher block + `respond`) — run.sh's own snippet-import mechanics were
 #     not available to read against at the time this harness was written.
 #   - Caddy REDACTS credential headers (Authorization, Cookie, …) in access
@@ -79,9 +79,9 @@ if ! command -v script >/dev/null 2>&1; then
   exit 1
 fi
 
-TARGET_IMAGE="${CLAUDE_DOCKER_IMAGE:-claude-code:local}"
+TARGET_IMAGE="${OPENCODE_DOCKER_IMAGE:-opencode:local}"
 if ! docker image inspect "$TARGET_IMAGE" >/dev/null 2>&1; then
-  echo "FATAL: image '$TARGET_IMAGE' not found — build it first (docker build -t claude-code:local .). CI is expected to build it before running this harness." >&2
+  echo "FATAL: image '$TARGET_IMAGE' not found — build it first (docker build -t opencode:local .). CI is expected to build it before running this harness." >&2
   exit 1
 fi
 
@@ -94,7 +94,7 @@ fi
 
 # Pinned mock image — deliberately the SAME digest-pinned Caddy image the
 # sidecar itself uses (see run.sh's PROXY_IMAGE default), reused here as a
-# generic plain-HTTP echo server. Not read from CLAUDE_DOCKER_PROXY_IMAGE:
+# generic plain-HTTP echo server. Not read from OPENCODE_DOCKER_PROXY_IMAGE:
 # that env var is reserved below for the 4.6 bad-image scenario, which must
 # only affect the SIDECAR run.sh starts, never this harness's own mock.
 MOCK_IMAGE="caddy:2.11.4@sha256:844f60b64e4724a5aa8245e019dace0d3f199f7433ce6c57676cb30a920dbad9"
@@ -145,29 +145,29 @@ ingest_results_file() {
 # shares /var/folders) only reliably share $HOME, and this dir is bind-mounted
 # into the mock (Caddyfile) — an unshared source path materializes as an empty
 # directory inside the VM and the file mount fails with ENOTDIR.
-SCRATCH_ROOT="$HOME/.cache/claude-docker"
+SCRATCH_ROOT="$HOME/.cache/opencode-docker"
 mkdir -p "$SCRATCH_ROOT"
 SCRATCH=$(mktemp -d "$SCRATCH_ROOT/ghtest.XXXXXX")
 MOCK_CID=""
 BG_PIDS=()
 CLEANUP_DONE=0
 
-# Removes STOPPED claude-gh-* sidecars and unused networks — mirrors run.sh's
+# Removes STOPPED opencode-gh-* sidecars and unused networks — mirrors run.sh's
 # own startup prune (same prefix, same stopped-only rationale). CRITICAL: never
-# touches a RUNNING claude-gh-proxy-* container, because that almost certainly
-# belongs to a concurrent live `claude-docker --gh` session on this same host
+# touches a RUNNING opencode-gh-proxy-* container, because that almost certainly
+# belongs to a concurrent live `opencode-docker --gh` session on this same host
 # (e.g. the one you may be running this from) — force-removing it would sever
 # that session's GitHub access mid-flight. Network rm is best-effort and fails
 # harmlessly on an in-use network (a live session's), so only genuinely orphaned
 # networks are removed. Called at pre-flight (so a prior crashed run of THIS
 # harness can't confuse discovery) and from the exit trap (backstop only).
-sweep_stale_claude_gh() {
-  docker ps -aq --filter "name=^claude-gh-proxy-" \
+sweep_stale_opencode_gh() {
+  docker ps -aq --filter "name=^opencode-gh-proxy-" \
       --filter "status=exited" --filter "status=created" --filter "status=dead" \
       2>/dev/null | while IFS= read -r cid; do
     [ -n "$cid" ] && docker rm -f "$cid" >/dev/null 2>&1
   done
-  docker network ls -q --filter "name=^claude-gh-" 2>/dev/null | while IFS= read -r nid; do
+  docker network ls -q --filter "name=^opencode-gh-" 2>/dev/null | while IFS= read -r nid; do
     [ -n "$nid" ] && docker network rm "$nid" >/dev/null 2>&1
   done
   return 0
@@ -187,7 +187,7 @@ cleanup() {
   fi
   wait 2>/dev/null
   [ -n "$MOCK_CID" ] && docker rm -f "$MOCK_CID" >/dev/null 2>&1
-  sweep_stale_claude_gh
+  sweep_stale_opencode_gh
   # Keep the scratch dir (session transcripts, captured sidecar/mock logs,
   # results files) whenever anything failed — it's the only debugging
   # evidence, and several artifacts in it can't be regenerated after the
@@ -200,19 +200,19 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-echo "Pre-flight: sweeping any stale claude-gh-* resources from a previous run..."
-sweep_stale_claude_gh
+echo "Pre-flight: sweeping any stale opencode-gh-* resources from a previous run..."
+sweep_stale_opencode_gh
 
-# Baseline: claude-gh-* resources that already exist AFTER the sweep — i.e. a
-# concurrent live `claude-docker --gh` session's network/sidecar on this host
+# Baseline: opencode-gh-* resources that already exist AFTER the sweep — i.e. a
+# concurrent live `opencode-docker --gh` session's network/sidecar on this host
 # (the sweep leaves running sidecars alone). They legitimately persist for the
 # whole run, so teardown assertions must judge "clean" as "nothing NEW beyond
 # this baseline", never "nothing at all". Space-padded for whole-word `case`
 # membership tests.
-BASELINE_NETS=" $(docker network ls --filter 'name=claude-gh-' --format '{{.Name}}' 2>/dev/null | tr '\n' ' ')"
-BASELINE_SIDECARS=" $(docker ps -a --filter 'name=claude-gh-proxy-' --format '{{.Names}}' 2>/dev/null | tr '\n' ' ')"
+BASELINE_NETS=" $(docker network ls --filter 'name=opencode-gh-' --format '{{.Name}}' 2>/dev/null | tr '\n' ' ')"
+BASELINE_SIDECARS=" $(docker ps -a --filter 'name=opencode-gh-proxy-' --format '{{.Names}}' 2>/dev/null | tr '\n' ' ')"
 [ "$(printf '%s' "$BASELINE_NETS" | tr -d ' ')" != "" ] \
-  && echo "Pre-flight: detected pre-existing claude-gh-* resources (likely a live --gh session) — excluding from teardown checks:$BASELINE_NETS"
+  && echo "Pre-flight: detected pre-existing opencode-gh-* resources (likely a live --gh session) — excluding from teardown checks:$BASELINE_NETS"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -285,36 +285,36 @@ wait_for_container_running() {
   return 1
 }
 
-# Space-separated list of claude-gh-* resources that exist now but were NOT in
+# Space-separated list of opencode-gh-* resources that exist now but were NOT in
 # the pre-existing baseline — i.e. resources this harness created and failed to
 # clean up. Empty means clean. A concurrent live session (in the baseline) is
 # correctly ignored.
-new_claude_gh_leftovers() {
+new_opencode_gh_leftovers() {
   local n c out=""
-  for n in $(docker network ls --filter 'name=claude-gh-' --format '{{.Name}}' 2>/dev/null); do
+  for n in $(docker network ls --filter 'name=opencode-gh-' --format '{{.Name}}' 2>/dev/null); do
     case "$BASELINE_NETS" in *" $n "*) ;; *) out="$out net:$n" ;; esac
   done
-  for c in $(docker ps -a --filter 'name=claude-gh-proxy-' --format '{{.Names}}' 2>/dev/null); do
+  for c in $(docker ps -a --filter 'name=opencode-gh-proxy-' --format '{{.Names}}' 2>/dev/null); do
     case "$BASELINE_SIDECARS" in *" $c "*) ;; *) out="$out container:$c" ;; esac
   done
   printf '%s' "${out# }"
 }
 
-no_new_claude_gh_resources() {
-  [ -z "$(new_claude_gh_leftovers)" ]
+no_new_opencode_gh_resources() {
+  [ -z "$(new_opencode_gh_leftovers)" ]
 }
 
-wait_for_absence_claude_gh() {
+wait_for_absence_opencode_gh() {
   local timeout="$1" i=0
   while [ "$i" -lt "$timeout" ]; do
-    no_new_claude_gh_resources && return 0
+    no_new_opencode_gh_resources && return 0
     i=$((i + 1))
     sleep 1
   done
   return 1
 }
 
-# Polls `docker network ls` for a claude-gh-* network not already named in
+# Polls `docker network ls` for a opencode-gh-* network not already named in
 # $2 (space-separated). Session ids are mktemp suffixes chosen by run.sh
 # itself and unknowable ahead of time, so discovery is the only option; the
 # pre-flight sweep above plus this exclude-list keep concurrent-session
@@ -322,7 +322,7 @@ wait_for_absence_claude_gh() {
 poll_new_network() {
   local timeout="$1" exclude="$2" i=0 candidates line
   while [ "$i" -lt "$timeout" ]; do
-    candidates=$(docker network ls --filter "name=claude-gh-" --format '{{.Name}}' 2>/dev/null)
+    candidates=$(docker network ls --filter "name=opencode-gh-" --format '{{.Name}}' 2>/dev/null)
     while IFS= read -r line; do
       [ -z "$line" ] && continue
       case " $exclude " in
@@ -337,14 +337,14 @@ poll_new_network() {
   return 1
 }
 
-# Space-delimited snapshot of the claude-gh-* networks that exist RIGHT NOW.
+# Space-delimited snapshot of the opencode-gh-* networks that exist RIGHT NOW.
 # Captured immediately before launching a run.sh and fed to poll_new_network as
 # the exclude list, so a network stranded by an earlier interrupted run (which
 # the pre-flight sweep cannot remove while a wedged sidecar still holds it)
 # can never be misidentified as this session's freshly-created network — the
 # failure mode that otherwise cascades into wrong-network mock attachment.
-snapshot_claude_gh_nets() {
-  docker network ls --filter "name=claude-gh-" --format '{{.Name}}' 2>/dev/null | tr '\n' ' '
+snapshot_opencode_gh_nets() {
+  docker network ls --filter "name=opencode-gh-" --format '{{.Name}}' 2>/dev/null | tr '\n' ' '
 }
 
 # Builds a PATH whose first entry holds an always-failing `gh` stub, for the
@@ -406,13 +406,13 @@ wait_for_release() {
 }
 
 run_main_checks() {
-  if [ "${GH_TOKEN:-}" = "claude-docker-proxy" ]; then
-    pass "4.2 placeholder GH_TOKEN in agent env (GH_TOKEN=claude-docker-proxy)"
+  if [ "${GH_TOKEN:-}" = "opencode-docker-proxy" ]; then
+    pass "4.2 placeholder GH_TOKEN in agent env (GH_TOKEN=opencode-docker-proxy)"
   else
-    fail "4.2 placeholder GH_TOKEN: expected 'claude-docker-proxy', got '${GH_TOKEN:-<unset>}'"
+    fail "4.2 placeholder GH_TOKEN: expected 'opencode-docker-proxy', got '${GH_TOKEN:-<unset>}'"
   fi
 
-  # PID 1 is this script itself (CLAUDE_DOCKER_TEST_ENTRY is "exec bash
+  # PID 1 is this script itself (OPENCODE_DOCKER_TEST_ENTRY is "exec bash
   # <this file>", and the outer `sh -c` execs into it), so /proc/1/environ is
   # our own environment — reading it needs no special privilege.
   if grep -aq -- "$FAKE_TOKEN" /proc/1/environ 2>/dev/null; then
@@ -461,7 +461,7 @@ run_main_checks() {
       fail "4.2 gh api /rate_limit failed: $gh_err"
     fi
     rm -f /tmp/gh_gh_err.$$
-    if [ "$(gh auth token 2>/dev/null)" = "claude-docker-proxy" ]; then
+    if [ "$(gh auth token 2>/dev/null)" = "opencode-docker-proxy" ]; then
       pass "4.2 gh auth token returns the placeholder, not the real token"
     else
       fail "4.2 gh auth token did not return the placeholder"
@@ -487,7 +487,7 @@ run_main_checks() {
 
   local delete_code
   delete_code=$(curl -sS --max-time 10 -o /tmp/gh_delete_body.$$ -w '%{http_code}' -X DELETE https://api.github.com/repos/o/r 2>/dev/null)
-  if [ "$delete_code" = "403" ] && grep -q "claude-docker gh-proxy policy" /tmp/gh_delete_body.$$; then
+  if [ "$delete_code" = "403" ] && grep -q "opencode-docker gh-proxy policy" /tmp/gh_delete_body.$$; then
     pass "4.3 default policy blocks DELETE /repos/o/r (403, policy body present)"
   else
     fail "4.3 default policy did not block DELETE /repos/o/r as expected (code=$delete_code body=$(cat /tmp/gh_delete_body.$$ 2>/dev/null))"
@@ -498,9 +498,9 @@ run_main_checks() {
     local refs_code
     refs_code=$(curl -sS --max-time 10 -o /dev/null -w '%{http_code}' -X DELETE https://api.github.com/repos/o/r/git/refs/heads/foo 2>/dev/null)
     if [ "$refs_code" = "403" ]; then
-      pass "4.3 CLAUDE_DOCKER_GH_POLICY extension blocks DELETE .../git/refs/heads/foo (403)"
+      pass "4.3 OPENCODE_DOCKER_GH_POLICY extension blocks DELETE .../git/refs/heads/foo (403)"
     else
-      fail "4.3 CLAUDE_DOCKER_GH_POLICY extension did not block DELETE .../git/refs/heads/foo (code=$refs_code)"
+      fail "4.3 OPENCODE_DOCKER_GH_POLICY extension did not block DELETE .../git/refs/heads/foo (code=$refs_code)"
     fi
   fi
 
@@ -644,22 +644,22 @@ gen_assert_script "$WS1/assert.sh" main "$FAKE1" "1"
 
 POLICY_FILE="$SCRATCH/gh-policy-snippet.Caddyfile"
 cat > "$POLICY_FILE" <<'POLICY'
-@claude_docker_test_policy_ext {
+@opencode_docker_test_policy_ext {
 	method DELETE
 	path_regexp ^/repos/[^/]+/[^/]+/git/refs/.*
 }
-respond @claude_docker_test_policy_ext "claude-docker gh-proxy policy (test extension): destructive ref deletion blocked" 403
+respond @opencode_docker_test_policy_ext "opencode-docker gh-proxy policy (test extension): destructive ref deletion blocked" 403
 POLICY
 
 LOG1="$SCRATCH/run1.log"
-PRE1=$(snapshot_claude_gh_nets)
+PRE1=$(snapshot_opencode_gh_nets)
 run_wrapped "$LOG1" env \
   GH_TOKEN="$FAKE1" \
-  CLAUDE_DOCKER_RUNTIME=docker \
-  CLAUDE_DOCKER_IMAGE="$TARGET_IMAGE" \
-  CLAUDE_DOCKER_GH_UPSTREAM="http://ghmock:8080" \
-  CLAUDE_DOCKER_GH_POLICY="$POLICY_FILE" \
-  CLAUDE_DOCKER_TEST_ENTRY="exec bash /workspaces/ghtest-main/assert.sh" \
+  OPENCODE_DOCKER_RUNTIME=docker \
+  OPENCODE_DOCKER_IMAGE="$TARGET_IMAGE" \
+  OPENCODE_DOCKER_GH_UPSTREAM="http://ghmock:8080" \
+  OPENCODE_DOCKER_GH_POLICY="$POLICY_FILE" \
+  OPENCODE_DOCKER_TEST_ENTRY="exec bash /workspaces/ghtest-main/assert.sh" \
   bash "$RUN_SH" --gh "$WS1" &
 PID1=$!
 BG_PIDS+=("$PID1")
@@ -667,15 +667,15 @@ BG_PIDS+=("$PID1")
 NET1=$(poll_new_network 30 "$PRE1") || NET1=""
 SIDECAR1=""
 if [ -n "$NET1" ]; then
-  record_pass "setup: session network '$NET1' appeared (task 2.1 naming: claude-gh-<id>)"
+  record_pass "setup: session network '$NET1' appeared (task 2.1 naming: opencode-gh-<id>)"
   if docker network connect --alias ghmock "$NET1" "$MOCK_CID" 2>/dev/null; then
     record_pass "setup: mock attached to $NET1 as alias 'ghmock'"
   else
     record_fail "setup: could not attach mock to $NET1"
   fi
-  SIDECAR1="claude-gh-proxy-${NET1#claude-gh-}"
+  SIDECAR1="opencode-gh-proxy-${NET1#opencode-gh-}"
   if wait_for_container_running "$SIDECAR1" 15; then
-    record_pass "4.4 sidecar '$SIDECAR1' is running (task 2.1 naming: claude-gh-proxy-<id>)"
+    record_pass "4.4 sidecar '$SIDECAR1' is running (task 2.1 naming: opencode-gh-proxy-<id>)"
   else
     record_fail "4.4 derived sidecar name '$SIDECAR1' never appeared as a running container"
     SIDECAR1=""
@@ -754,9 +754,9 @@ if [ -f "$SCRATCH/mock-phase1.log" ]; then
   fi
   refs_mock_lines=$(grep -F '"uri":"/repos/o/r/git/refs/heads/foo"' "$SCRATCH/mock-phase1.log" 2>/dev/null || true)
   if [ -n "$refs_mock_lines" ]; then
-    record_fail "4.3 CLAUDE_DOCKER_GH_POLICY-extended DELETE .../git/refs/heads/foo reached the mock upstream"
+    record_fail "4.3 OPENCODE_DOCKER_GH_POLICY-extended DELETE .../git/refs/heads/foo reached the mock upstream"
   else
-    record_pass "4.3 CLAUDE_DOCKER_GH_POLICY-extended DELETE .../git/refs/heads/foo never reached the mock upstream"
+    record_pass "4.3 OPENCODE_DOCKER_GH_POLICY-extended DELETE .../git/refs/heads/foo never reached the mock upstream"
   fi
   git_lines=$(grep -F '/o/r/info/refs' "$SCRATCH/mock-phase1.log" 2>/dev/null || true)
   if [ -n "$git_lines" ] && printf '%s\n' "$git_lines" | grep -qF '"Authorization":["Basic'; then
@@ -806,13 +806,13 @@ gen_assert_script "$WS2B/assert.sh" concurrent "$FAKE_B" ""
 LOG2A="$SCRATCH/run2a.log"
 LOG2B="$SCRATCH/run2b.log"
 
-PRE2A=$(snapshot_claude_gh_nets)
+PRE2A=$(snapshot_opencode_gh_nets)
 run_wrapped "$LOG2A" env \
   GH_TOKEN="$FAKE_A" \
-  CLAUDE_DOCKER_RUNTIME=docker \
-  CLAUDE_DOCKER_IMAGE="$TARGET_IMAGE" \
-  CLAUDE_DOCKER_GH_UPSTREAM="http://ghmock:8080" \
-  CLAUDE_DOCKER_TEST_ENTRY="exec bash /workspaces/ghtest-concA/assert.sh" \
+  OPENCODE_DOCKER_RUNTIME=docker \
+  OPENCODE_DOCKER_IMAGE="$TARGET_IMAGE" \
+  OPENCODE_DOCKER_GH_UPSTREAM="http://ghmock:8080" \
+  OPENCODE_DOCKER_TEST_ENTRY="exec bash /workspaces/ghtest-concA/assert.sh" \
   bash "$RUN_SH" --gh "$WS2A" &
 PID2A=$!
 BG_PIDS+=("$PID2A")
@@ -826,13 +826,13 @@ else
   record_fail "4.5 session A's network never appeared within 30s"
 fi
 
-PRE2B=$(snapshot_claude_gh_nets)
+PRE2B=$(snapshot_opencode_gh_nets)
 run_wrapped "$LOG2B" env \
   GH_TOKEN="$FAKE_B" \
-  CLAUDE_DOCKER_RUNTIME=docker \
-  CLAUDE_DOCKER_IMAGE="$TARGET_IMAGE" \
-  CLAUDE_DOCKER_GH_UPSTREAM="http://ghmock:8080" \
-  CLAUDE_DOCKER_TEST_ENTRY="exec bash /workspaces/ghtest-concB/assert.sh" \
+  OPENCODE_DOCKER_RUNTIME=docker \
+  OPENCODE_DOCKER_IMAGE="$TARGET_IMAGE" \
+  OPENCODE_DOCKER_GH_UPSTREAM="http://ghmock:8080" \
+  OPENCODE_DOCKER_TEST_ENTRY="exec bash /workspaces/ghtest-concB/assert.sh" \
   bash "$RUN_SH" --gh "$WS2B" &
 PID2B=$!
 BG_PIDS+=("$PID2B")
@@ -850,8 +850,8 @@ fi
 
 SIDECAR2A=""
 SIDECAR2B=""
-[ -n "$NET2A" ] && SIDECAR2A="claude-gh-proxy-${NET2A#claude-gh-}"
-[ -n "$NET2B" ] && SIDECAR2B="claude-gh-proxy-${NET2B#claude-gh-}"
+[ -n "$NET2A" ] && SIDECAR2A="opencode-gh-proxy-${NET2A#opencode-gh-}"
+[ -n "$NET2B" ] && SIDECAR2B="opencode-gh-proxy-${NET2B#opencode-gh-}"
 
 ok_a=0
 ok_b=0
@@ -897,15 +897,15 @@ if [ "$RC2B" -eq 0 ]; then record_pass "4.5 session B's run.sh exited 0"; else r
 ingest_results_file "$WS2A/results.txt" "concurrent-A"
 ingest_results_file "$WS2B/results.txt" "concurrent-B"
 
-if wait_for_absence_claude_gh 20; then
-  record_pass "4.5 teardown: no claude-gh-* containers or networks remain after both sessions exit"
+if wait_for_absence_opencode_gh 20; then
+  record_pass "4.5 teardown: no opencode-gh-* containers or networks remain after both sessions exit"
 else
-  record_fail "4.5 teardown: harness-created claude-gh-* leftovers remain (baseline/live-session resources excluded): [$(new_claude_gh_leftovers)]"
+  record_fail "4.5 teardown: harness-created opencode-gh-* leftovers remain (baseline/live-session resources excluded): [$(new_opencode_gh_leftovers)]"
 fi
 
 # ===========================================================================
 # Phase 3 (task 4.6): --gh-direct, no-token silence, flag conflict, bad image.
-# Run only after phase 1/2 have fully torn down, so "no claude-gh-* resources"
+# Run only after phase 1/2 have fully torn down, so "no opencode-gh-* resources"
 # checks below aren't confused by an unrelated leftover from an earlier phase.
 # ===========================================================================
 echo
@@ -918,9 +918,9 @@ gen_assert_script "$WS3D/assert.sh" direct "$FAKE_DIRECT" ""
 LOG3D="$SCRATCH/run3d.log"
 run_wrapped "$LOG3D" env \
   GH_TOKEN="$FAKE_DIRECT" \
-  CLAUDE_DOCKER_RUNTIME=docker \
-  CLAUDE_DOCKER_IMAGE="$TARGET_IMAGE" \
-  CLAUDE_DOCKER_TEST_ENTRY="exec bash /workspaces/ghtest-direct/assert.sh" \
+  OPENCODE_DOCKER_RUNTIME=docker \
+  OPENCODE_DOCKER_IMAGE="$TARGET_IMAGE" \
+  OPENCODE_DOCKER_TEST_ENTRY="exec bash /workspaces/ghtest-direct/assert.sh" \
   bash "$RUN_SH" --gh-direct "$WS3D" &
 PID3D=$!
 BG_PIDS+=("$PID3D")
@@ -928,10 +928,10 @@ wait "$PID3D"
 RC3D=$?
 if [ "$RC3D" -eq 0 ]; then record_pass "4.6 --gh-direct session exited 0"; else record_fail "4.6 --gh-direct session exited $RC3D"; fi
 ingest_results_file "$WS3D/results.txt" "gh-direct"
-if no_new_claude_gh_resources; then
-  record_pass "4.6 --gh-direct started no claude-gh-* sidecar or network"
+if no_new_opencode_gh_resources; then
+  record_pass "4.6 --gh-direct started no opencode-gh-* sidecar or network"
 else
-  record_fail "4.6 --gh-direct unexpectedly left claude-gh-* resources behind"
+  record_fail "4.6 --gh-direct unexpectedly left opencode-gh-* resources behind"
 fi
 
 # 4.6.b: --gh with no discoverable host token — silent, no sidecar.
@@ -941,9 +941,9 @@ gen_assert_script "$WS3N/assert.sh" notoken "" ""
 LOG3N="$SCRATCH/run3n.log"
 SAFE_PATH=$(make_no_gh_path)
 run_wrapped "$LOG3N" env -u GH_TOKEN -u GITHUB_TOKEN PATH="$SAFE_PATH" \
-  CLAUDE_DOCKER_RUNTIME=docker \
-  CLAUDE_DOCKER_IMAGE="$TARGET_IMAGE" \
-  CLAUDE_DOCKER_TEST_ENTRY="exec bash /workspaces/ghtest-notoken/assert.sh" \
+  OPENCODE_DOCKER_RUNTIME=docker \
+  OPENCODE_DOCKER_IMAGE="$TARGET_IMAGE" \
+  OPENCODE_DOCKER_TEST_ENTRY="exec bash /workspaces/ghtest-notoken/assert.sh" \
   bash "$RUN_SH" --gh "$WS3N" &
 PID3N=$!
 BG_PIDS+=("$PID3N")
@@ -963,17 +963,17 @@ else
   record_pass "4.6 --gh with no host token printed no error-like output"
 fi
 ingest_results_file "$WS3N/results.txt" "gh-no-token"
-if no_new_claude_gh_resources; then
+if no_new_opencode_gh_resources; then
   record_pass "4.6 --gh with no host token started no sidecar or network"
 else
-  record_fail "4.6 --gh with no host token unexpectedly left claude-gh-* resources behind"
+  record_fail "4.6 --gh with no host token unexpectedly left opencode-gh-* resources behind"
 fi
 
 # 4.6.c: --gh and --gh-direct together are rejected before anything starts.
 WS3X="$SCRATCH/ghtest-conflict"
 mkdir -p "$WS3X"
 LOG3X="$SCRATCH/run3x.log"
-run_wrapped "$LOG3X" env GH_TOKEN="$FAKE1" CLAUDE_DOCKER_RUNTIME=docker CLAUDE_DOCKER_IMAGE="$TARGET_IMAGE" \
+run_wrapped "$LOG3X" env GH_TOKEN="$FAKE1" OPENCODE_DOCKER_RUNTIME=docker OPENCODE_DOCKER_IMAGE="$TARGET_IMAGE" \
   bash "$RUN_SH" --gh --gh-direct "$WS3X" &
 PID3X=$!
 BG_PIDS+=("$PID3X")
@@ -989,10 +989,10 @@ if grep -qF -- '--gh' "$LOG3X" && grep -qF -- 'gh-direct' "$LOG3X"; then
 else
   record_fail "4.6 --gh --gh-direct rejection message doesn't clearly name both flags (see $LOG3X)"
 fi
-if no_new_claude_gh_resources; then
+if no_new_opencode_gh_resources; then
   record_pass "4.6 --gh --gh-direct started no container or sidecar"
 else
-  record_fail "4.6 --gh --gh-direct unexpectedly left claude-gh-* resources behind"
+  record_fail "4.6 --gh --gh-direct unexpectedly left opencode-gh-* resources behind"
 fi
 
 # 4.6.d: sidecar start failure (unresolvable pinned image) fails closed.
@@ -1002,10 +1002,10 @@ gen_assert_script "$WS3I/assert.sh" badimage-sentinel "$FAKE1" ""
 LOG3I="$SCRATCH/run3i.log"
 run_wrapped "$LOG3I" env \
   GH_TOKEN="$FAKE1" \
-  CLAUDE_DOCKER_RUNTIME=docker \
-  CLAUDE_DOCKER_IMAGE="$TARGET_IMAGE" \
-  CLAUDE_DOCKER_PROXY_IMAGE="localhost/does-not-exist:0" \
-  CLAUDE_DOCKER_TEST_ENTRY="exec bash /workspaces/ghtest-badimage/assert.sh" \
+  OPENCODE_DOCKER_RUNTIME=docker \
+  OPENCODE_DOCKER_IMAGE="$TARGET_IMAGE" \
+  OPENCODE_DOCKER_PROXY_IMAGE="localhost/does-not-exist:0" \
+  OPENCODE_DOCKER_TEST_ENTRY="exec bash /workspaces/ghtest-badimage/assert.sh" \
   bash "$RUN_SH" --gh "$WS3I" &
 PID3I=$!
 BG_PIDS+=("$PID3I")
@@ -1023,10 +1023,10 @@ if [ -f "$WS3I/should-not-exist" ]; then
 else
   record_pass "4.6 agent container never started when the sidecar failed to start (fail-closed)"
 fi
-if no_new_claude_gh_resources; then
-  record_pass "4.6 sidecar start failure left no claude-gh-* resources behind"
+if no_new_opencode_gh_resources; then
+  record_pass "4.6 sidecar start failure left no opencode-gh-* resources behind"
 else
-  record_fail "4.6 sidecar start failure left claude-gh-* resources behind"
+  record_fail "4.6 sidecar start failure left opencode-gh-* resources behind"
 fi
 
 # ---------------------------------------------------------------------------
