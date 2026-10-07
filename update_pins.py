@@ -28,8 +28,13 @@ Usage:
   python3 update_pins.py --audit             soak-gate check against live npm registry
 
 Honors GITHUB_TOKEN / GH_TOKEN (raises the GitHub API rate limit) when set.
-Stdlib only — no third-party packages (a supply-chain tool keeps its own trusted
-base minimal; `dependencies = []` above makes that visible and enforced).
+Rate-limited responses (GitHub core limit, secondary limits, 429s) are retried
+after waiting out the advertised reset window, bounded by
+UPDATE_PINS_RATE_LIMIT_MAX_WAIT seconds (default 600; set it to 0 to fail fast
+instead of waiting). Transient 5xx/network errors get bounded exponential
+backoff. Stdlib only — no third-party packages (a supply-chain tool keeps its
+own trusted base minimal; `dependencies = []` above makes that visible and
+enforced).
 """
 from __future__ import annotations
 
@@ -41,6 +46,7 @@ import re
 import shutil
 import sys
 import tempfile
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -77,7 +83,7 @@ TOOLS = [
 ]
 
 
-# ---- HTTP (https-only, bounded redirects) ---------------------------------
+# ---- HTTP (https-only, bounded redirects, bounded rate-limit waits) -------
 class _HTTPSOnlyRedirect(urllib.request.HTTPRedirectHandler):
     """Reject redirects to non-https targets, bound the chain, and drop the
     Authorization header when a redirect crosses to a different host — the
@@ -106,6 +112,62 @@ class _HTTPSOnlyRedirect(urllib.request.HTTPRedirectHandler):
 
 _OPENER = urllib.request.build_opener(_HTTPSOnlyRedirect)
 
+# Retry policy for transient HTTP failures. GitHub's unauthenticated core limit
+# is 60 requests/hour per IP — shared CI runners and repeated local runs burn
+# through that fast — so instead of aborting on a rate limit we wait out the
+# window the server advertises (Retry-After / X-RateLimit-Reset) and retry,
+# bounded by RATE_LIMIT_MAX_WAIT so a run can never hang for hours. Set
+# UPDATE_PINS_RATE_LIMIT_MAX_WAIT=0 to fail fast instead of waiting.
+RATE_LIMIT_MAX_WAIT = float(os.environ.get("UPDATE_PINS_RATE_LIMIT_MAX_WAIT", "600"))
+MAX_ATTEMPTS = 5
+BACKOFF_BASE = 2.0  # seconds; exponential backoff for non-rate-limit errors
+
+
+def _sleep(seconds: float) -> None:
+    """Indirection so the unit tests can patch out real waiting."""
+    time.sleep(seconds)
+
+
+def _rate_limit_wait(e: urllib.error.HTTPError) -> float | None:
+    """Seconds to wait before retrying this error, or None if it is not a
+    recognisable rate limit: GitHub's core limit answers 403 with
+    X-RateLimit-Remaining: 0 + X-RateLimit-Reset (epoch seconds); secondary
+    limits and 429s carry Retry-After."""
+    if e.code not in (403, 429):
+        return None
+    hdrs = e.headers
+    if hdrs is None:
+        return None
+    retry_after = hdrs.get("Retry-After")
+    if retry_after:
+        try:
+            return float(retry_after) + 1.0
+        except ValueError:
+            pass
+    if hdrs.get("X-RateLimit-Remaining") == "0":
+        reset = hdrs.get("X-RateLimit-Reset")
+        if reset:
+            try:
+                return max(0.0, float(reset) - time.time()) + 1.0
+            except ValueError:
+                pass
+    return None
+
+
+def _rate_limit_give_up(url: str, wait: float) -> RuntimeError:
+    hint = ""
+    if not (os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")):
+        hint = " — set GITHUB_TOKEN (or GH_TOKEN) to raise the GitHub API limit"
+    if wait > RATE_LIMIT_MAX_WAIT:
+        return RuntimeError(
+            f"rate limit on {url}: reset in {wait:.0f}s exceeds the "
+            f"{RATE_LIMIT_MAX_WAIT:.0f}s wait cap (raise it with "
+            f"UPDATE_PINS_RATE_LIMIT_MAX_WAIT, or set that to 0 to fail fast){hint}"
+        )
+    return RuntimeError(
+        f"rate limit on {url} still active after {MAX_ATTEMPTS} attempts{hint}"
+    )
+
 
 def _open(url: str, headers: dict | None = None):
     if not url.lower().startswith("https://"):
@@ -113,7 +175,33 @@ def _open(url: str, headers: dict | None = None):
     hdrs = {"User-Agent": USER_AGENT}
     if headers:
         hdrs.update(headers)
-    return _OPENER.open(urllib.request.Request(url, headers=hdrs), timeout=30)
+    for attempt in range(1, MAX_ATTEMPTS + 1):
+        try:
+            return _OPENER.open(urllib.request.Request(url, headers=hdrs), timeout=30)
+        except urllib.error.HTTPError as e:
+            rl_wait = _rate_limit_wait(e)
+            if rl_wait is not None:
+                if rl_wait > RATE_LIMIT_MAX_WAIT or attempt == MAX_ATTEMPTS:
+                    raise _rate_limit_give_up(url, rl_wait) from e
+                print(f"  … {url}: HTTP {e.code} rate limited, waiting {rl_wait:.0f}s "
+                      f"(attempt {attempt}/{MAX_ATTEMPTS})", file=sys.stderr)
+                _sleep(rl_wait)
+                continue
+            if (500 <= e.code < 600 or e.code == 429) and attempt < MAX_ATTEMPTS:
+                wait = BACKOFF_BASE * 2 ** (attempt - 1)  # transient server error
+                print(f"  … {url}: HTTP {e.code}, retrying in {wait:.0f}s "
+                      f"(attempt {attempt}/{MAX_ATTEMPTS})", file=sys.stderr)
+                _sleep(wait)
+                continue
+            raise
+        except urllib.error.URLError as e:
+            if attempt == MAX_ATTEMPTS:
+                raise
+            wait = BACKOFF_BASE * 2 ** (attempt - 1)
+            print(f"  … {url}: {e.reason}, retrying in {wait:.0f}s "
+                  f"(attempt {attempt}/{MAX_ATTEMPTS})", file=sys.stderr)
+            _sleep(wait)
+    raise AssertionError("unreachable")
 
 
 def http_bytes(url: str, headers: dict | None = None) -> bytes:
