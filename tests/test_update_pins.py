@@ -7,8 +7,11 @@ imports as a normal module. Run with:
     python3 -m unittest discover -s tests
 """
 import contextlib
+import email.message
 import io
+import os
 import sys
+import time
 import unittest
 import unittest.mock
 import urllib.error
@@ -195,6 +198,107 @@ class TestRedirectAuthStrip(unittest.TestCase):
     def test_non_https_redirect_rejected(self):
         with self.assertRaises(urllib.error.URLError):
             self._redirect("https://api.github.com/x", "http://cdn.example.com/y")
+
+
+class TestRateLimitRetry(unittest.TestCase):
+    """_open() must wait out rate limits (bounded) and retry, and suggest a
+    token when giving up. _OPENER.open and _sleep are mocked — no network, no
+    real waiting."""
+
+    URL = "https://api.github.com/x"
+
+    def _http_error(self, code, headers=None):
+        msg = email.message.Message()
+        for k, v in (headers or {}).items():
+            msg[k] = v
+        return urllib.error.HTTPError(self.URL, code, "err", msg, io.BytesIO(b""))
+
+    def _open(self, side_effects, token=None):
+        """Run up._open with mocked opener/sleep. Returns
+        (outcome, value, sleeps) where outcome is 'ok' or 'raise'."""
+        sleeps = []
+        env = {"GITHUB_TOKEN": token} if token else {}
+        err_buf = io.StringIO()
+        with unittest.mock.patch.object(
+            up._OPENER, "open", side_effect=side_effects
+        ) as m_open, unittest.mock.patch.object(
+            up, "_sleep", side_effect=lambda s: sleeps.append(s)
+        ), unittest.mock.patch.dict(os.environ, env, clear=True), \
+                contextlib.redirect_stderr(err_buf):
+            try:
+                return "ok", up._open(self.URL), sleeps
+            except Exception as e:  # noqa: BLE001 — the test asserts on it
+                return "raise", e, sleeps
+
+    def test_core_rate_limit_waits_for_reset_then_retries(self):
+        """403 with X-RateLimit-Remaining: 0 → sleep until reset, then retry."""
+        reset = str(int(time.time()) - 5)  # already elapsed → ~1s wait
+        limited = self._http_error(403, {
+            "X-RateLimit-Remaining": "0", "X-RateLimit-Reset": reset,
+        })
+        outcome, value, sleeps = self._open([limited, "sentinel"])
+        self.assertEqual(outcome, "ok")
+        self.assertEqual(value, "sentinel")
+        self.assertEqual(len(sleeps), 1)
+        self.assertAlmostEqual(sleeps[0], 1.0, delta=0.5)
+
+    def test_retry_after_header_honored(self):
+        limited = self._http_error(403, {"Retry-After": "30"})
+        outcome, _, sleeps = self._open([limited, "sentinel"])
+        self.assertEqual(outcome, "ok")
+        self.assertEqual(len(sleeps), 1)
+        self.assertAlmostEqual(sleeps[0], 31.0, delta=0.5)
+
+    def test_wait_beyond_cap_raises_with_token_hint(self):
+        """A reset far beyond the cap must fail fast, not sleep for hours —
+        and the message must point at GITHUB_TOKEN when none is set."""
+        limited = self._http_error(403, {"Retry-After": "99999"})
+        outcome, err, sleeps = self._open([limited])
+        self.assertEqual(outcome, "raise")
+        self.assertIsInstance(err, RuntimeError)
+        self.assertIn("GITHUB_TOKEN", str(err))
+        self.assertEqual(sleeps, [], "must not sleep when the wait exceeds the cap")
+
+    def test_token_hint_omitted_when_token_set(self):
+        limited = self._http_error(403, {"Retry-After": "99999"})
+        outcome, err, _ = self._open([limited], token="secret")
+        self.assertEqual(outcome, "raise")
+        self.assertNotIn("GITHUB_TOKEN", str(err))
+
+    def test_plain_403_is_not_retried(self):
+        """A 403 without rate-limit headers is a real error — raise at once."""
+        outcome, err, sleeps = self._open([self._http_error(403)])
+        self.assertEqual(outcome, "raise")
+        self.assertIsInstance(err, urllib.error.HTTPError)
+        self.assertEqual(sleeps, [])
+
+    def test_500_retried_with_exponential_backoff(self):
+        outcome, value, sleeps = self._open(
+            [self._http_error(500), self._http_error(503), "sentinel"]
+        )
+        self.assertEqual(outcome, "ok")
+        self.assertEqual(value, "sentinel")
+        self.assertEqual(sleeps, [2.0, 4.0])
+
+    def test_429_without_retry_after_backs_off(self):
+        outcome, _, sleeps = self._open([self._http_error(429), "sentinel"])
+        self.assertEqual(outcome, "ok")
+        self.assertEqual(sleeps, [2.0])
+
+    def test_rate_limit_persisting_past_max_attempts_raises(self):
+        limited = self._http_error(403, {"Retry-After": "1"})
+        outcome, err, sleeps = self._open([limited] * up.MAX_ATTEMPTS)
+        self.assertEqual(outcome, "raise")
+        self.assertIsInstance(err, RuntimeError)
+        self.assertIn(f"after {up.MAX_ATTEMPTS} attempts", str(err))
+        self.assertEqual(len(sleeps), up.MAX_ATTEMPTS - 1)
+
+    def test_network_error_retried_then_raises(self):
+        err = urllib.error.URLError("connection reset")
+        outcome, raised, sleeps = self._open([err] * up.MAX_ATTEMPTS)
+        self.assertEqual(outcome, "raise")
+        self.assertIs(raised, err)
+        self.assertEqual(sleeps, [2.0, 4.0, 8.0, 16.0])
 
 
 class TestVersionVar(unittest.TestCase):
