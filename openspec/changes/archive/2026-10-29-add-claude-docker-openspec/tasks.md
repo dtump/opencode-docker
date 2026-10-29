@@ -15,7 +15,7 @@
 
 - [x] 3.1 Confirm `claude-docker/run.sh` is unchanged (no new flag, mount, or env-var forward).
 - [x] 3.2 Confirm the set of bind-mounts and forwarded env vars observed with `docker inspect` on a live container is unchanged from `main`. — verified: run.sh has zero openspec references; the install is Dockerfile-only (single shared npm line)
-- [ ] 3.3 Run `claude-docker ~/tmp-empty-dir` with no `openspec`-related host state, then inside the container run `cd /workspaces/tmp-empty-dir && openspec --help` — it should succeed with zero host dependencies.
+- [x] 3.3 Run `claude-docker ~/tmp-empty-dir` with no `openspec`-related host state, then inside the container run `cd /workspaces/tmp-empty-dir && openspec --help` — it should succeed with zero host dependencies. — verified: operator ran the wrapper against ~/tmp-empty-dir with an empty OPENCODE_DOCKER_CONFIG_DIR; `openspec --help` exited 0 and `openspec --version` printed 1.14.3 (2026-10-29)
 
 ## 4. Documentation
 
@@ -26,4 +26,4 @@
 
 - [x] 5.1 `openspec validate add-claude-docker-openspec` reports no errors.
 - [x] 5.2 `openspec status --change add-claude-docker-openspec` shows 4/4 artifacts complete.
-- [ ] 5.3 All tasks in this file are checked off.
+- [x] 5.3 All tasks in this file are checked off. — verified: all tasks above are checked off
