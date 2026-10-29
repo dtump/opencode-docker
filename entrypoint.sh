@@ -67,7 +67,13 @@ fi
 # st_dev across bind mounts so the walk descends into them anyway. chown
 # on a :ro mount returns EROFS, which would abort the entrypoint under
 # set -e — so we capture stderr, drop the expected EROFS lines, and
-# surface anything else as a warning. Pruning by /proc/self/mountinfo
+# surface anything else as a warning. ENOENT is filtered for the same
+# reason: OpenCode 2's background service keeps transient files under
+# /root on the shared volume (flock lock dirs under
+# ~/.local/state/opencode/locks/, the service.json registration, SQLite
+# -wal/-shm sidecars), and a second container starting while another
+# session's service is running can race their removal — a file that
+# vanishes mid-walk needs no chown. Pruning by /proc/self/mountinfo
 # would also skip the *writable* tmpfs masks (which we do want to chown),
 # so the post-hoc filter is the simpler-correct option. Two start points
 # because /root and /root/.config/opencode are separate volumes. Requires
@@ -76,7 +82,7 @@ fi
 # under /root.
 chown_errs="$(find /root /root/.config/opencode -xdev -print0 \
   | xargs -0 --no-run-if-empty chown -h "$HOST_UID:$HOST_GID" 2>&1 >/dev/null || true)"
-chown_errs="$(grep -v 'Read-only file system' <<<"$chown_errs" || true)"
+chown_errs="$(grep -v -e 'Read-only file system' -e 'No such file or directory' <<<"$chown_errs" || true)"
 [ -n "$chown_errs" ] && printf 'entrypoint: WARN chown: %s\n' "$chown_errs" >&2 || true
 
 # runuser uses setresuid()/setresgid() — needs CAP_SETUID and CAP_SETGID

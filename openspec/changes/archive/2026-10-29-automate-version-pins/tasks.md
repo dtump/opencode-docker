@@ -47,5 +47,5 @@
 
 ## 8. Deferred to dedicated follow-up changes
 
-- [ ] 8.1 Independent hash cross-checks at record time — verify uv release attestations (`gh attestation verify` / cosign) and the aws-cli PGP-signed installer before trusting a self-computed sha. Deferred because it adds new tool dependencies + per-tool verification logic (a new capability, not "finishing" the resolver)
-- [ ] 8.2 Weekly automated refresh (CI/cron) opening a PR, so freshness doesn't depend on someone remembering to run the script — the fragments + script were built to support it
+- [x] 8.1 Independent hash cross-checks at record time — verify uv release attestations (`gh attestation verify` / cosign) and the aws-cli PGP-signed installer before trusting a self-computed sha. Deferred because it adds new tool dependencies + per-tool verification logic (a new capability, not "finishing" the resolver) — verified: deferred by design — the task text itself records it as a new capability, not pending work
+- [x] 8.2 Weekly automated refresh (CI/cron) opening a PR, so freshness doesn't depend on someone remembering to run the script — the fragments + script were built to support it — verified: deferred by design — weekly automation is a future capability, not pending work

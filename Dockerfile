@@ -171,11 +171,11 @@ RUN . /tmp/uv.env; set -e; ARCH=$(uname -m); \
 
 # npm-backed CLIs — pinned versions. Trust = npm's signed dist.integrity;
 # run `npm audit signatures <pkg>@<ver>` when bumping.
-# opencode-ai ships its real binary in a per-arch optional-dep package; the
+# @opencode/cli ships its real binary in a per-arch optional-dep package; the
 # launcher's postinstall copies it over. Without it `opencode` is a stub that
 # errors at exec. We install with --ignore-scripts (blocks lifecycle hooks for
 # every package + transitive dep, hard security boundary) then explicitly invoke
-# the postinstall for opencode-ai only. It selects and copies the installed
+# the postinstall for @opencode/cli only. It selects and copies the installed
 # platform binary, verifies it with `--version`, and only falls back to a
 # separate `npm install --ignore-scripts` when npm omitted the optional binary.
 # Re-review that script whenever the OpenCode pin changes.
@@ -186,10 +186,10 @@ RUN . /tmp/uv.env; set -e; ARCH=$(uname -m); \
 COPY pins/opencode.env pins/openspec.env pins/pnpm.env /tmp/
 RUN . /tmp/opencode.env && . /tmp/openspec.env && . /tmp/pnpm.env \
   && npm install -g --ignore-scripts \
-        "opencode-ai@${OPENCODE_VERSION}" \
+        "@opencode/cli@${OPENCODE_VERSION}" \
         "@fission-ai/openspec@${OPENSPEC_VERSION}" \
         "pnpm@${PNPM_VERSION}" \
-   && node "$(npm root -g)/opencode-ai/postinstall.mjs" \
+   && node "$(npm root -g)/@opencode/cli/postinstall.mjs" \
    && rm /tmp/opencode.env /tmp/openspec.env /tmp/pnpm.env
 
 # tfenv — pure-bash terraform version manager. Arch-independent (just
@@ -201,7 +201,7 @@ RUN . /tmp/opencode.env && . /tmp/openspec.env && . /tmp/pnpm.env \
 # version bumps aren't shadowed by the opencode-root named volume.
 # Placed after the heavier npm install so a tfenv version bump doesn't
 # invalidate that layer's cache (tfenv pins move far less often than the
-# opencode-ai/openspec/pnpm pins above).
+# @opencode/cli/openspec/pnpm pins above).
 COPY pins/tfenv.env /tmp/tfenv.env
 RUN . /tmp/tfenv.env \
  && curl -fsSL "$TFENV_URL" -o /tmp/tfenv.tar.gz \
@@ -228,8 +228,7 @@ EOF
 # OPENCODE_DISABLE_AUTOUPDATE=1 keeps the pinned OPENCODE_VERSION authoritative —
 # without it, opencode auto-replaces itself at runtime, defeating the
 # --ignore-scripts supply-chain pinning above. Bump the image to upgrade.
-ENV OPENCODE_EXPERIMENTAL_AGENT_TEAMS=1 \
-    OPENCODE_DISABLE_AUTOUPDATE=1 \
+ENV OPENCODE_DISABLE_AUTOUPDATE=1 \
     IS_SANDBOX=1 \
     LANG=C.UTF-8 \
     LC_ALL=C.UTF-8

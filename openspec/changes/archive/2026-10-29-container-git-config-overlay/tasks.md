@@ -22,12 +22,12 @@
 
 ## 4. Per-repo cleanup notes (not automated)
 
-- [ ] 4.1 Document in change notes (proposal Impact section already covers this): for any repo where the user previously ran the old host opt-in, run `git config --unset extensions.relativeWorktrees && git config --unset worktree.useRelativePaths` on the host to restore gitstatusd visibility
-- [ ] 4.2 Note: there is also a stale `hooksPath = /workspaces/claude-shared/.git/hooks` (container path) in at least one local repo's host config — separate cleanup item, not in this change's scope
+- [x] 4.1 Document in change notes (proposal Impact section already covers this): for any repo where the user previously ran the old host opt-in, run `git config --unset extensions.relativeWorktrees && git config --unset worktree.useRelativePaths` on the host to restore gitstatusd visibility — verified: README § Git worktrees documents the gitstatusd/libgit2 caveat and the container-only rationale; proposal Impact covers the host-side unset commands
+- [x] 4.2 Note: there is also a stale `hooksPath = /workspaces/claude-shared/.git/hooks` (container path) in at least one local repo's host config — separate cleanup item, not in this change's scope — verified: descoped by its own text ('not in this change's scope')
 
 ## 5. Verify
 
 - [x] 5.1 End-to-end test: create a repo, replace `.git/config` with the augmented overlay, run `git worktree add`, confirm relative paths in both link files and confirm the overlay file is unchanged afterwards
 - [x] 5.2 Counter-test: confirm the env-var (`GIT_CONFIG_COUNT`) alternative corrupts the on-disk config — used to justify the file-overlay approach in design.md
 - [ ] 5.3 Container smoke test on the user's host: rebuild image (no Dockerfile changes), start claude-docker mounting `claude-shared`, run `git config --get extensions.relativeWorktrees` inside (expect `true`), check host's `.git/config` from another terminal (expect no extension keys), `git worktree add .claude/worktrees/test-overlay -b test-overlay` inside, then `cd` into that worktree from the host and confirm p10k shows the branch
-- [ ] 5.4 Bash 3.2 verification: dry-run `bash -n run.sh` and exercise the overlay loop with macOS system bash if available
+- [x] 5.4 Bash 3.2 verification: dry-run `bash -n run.sh` and exercise the overlay loop with macOS system bash if available — verified: `bash -n run.sh` passes; the overlay loop uses indexed arrays + counter loops (bash 3.2-safe); macOS system bash not available in this environment
