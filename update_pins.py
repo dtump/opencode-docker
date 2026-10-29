@@ -67,7 +67,7 @@ PIN_VERSION_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9.+_-]*")
 #   npm    -> npm package name        github -> owner/repo (releases)
 #   gitlab -> owner/repo (releases)   awscli -> special-cased (tag date + CDN)
 TOOLS = [
-    ("opencode", "npm", "opencode-ai"),
+    ("opencode", "npm", "@opencode/cli"),
     ("openspec", "npm", "@fission-ai/openspec"),
     ("pnpm", "npm", "pnpm"),
     ("uv", "github", "astral-sh/uv"),
